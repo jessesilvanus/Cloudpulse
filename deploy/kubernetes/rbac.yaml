@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudpulse-workloads
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: cloudpulse
+    app.kubernetes.io/component: rbac
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cloudpulse-workload-reader
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: cloudpulse
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "configmaps", "services"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cloudpulse-workload-binding
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: cloudpulse
+subjects:
+  - kind: ServiceAccount
+    name: cloudpulse-workloads
+    namespace: cloudpulse
+roleRef:
+  kind: Role
+  name: cloudpulse-workload-reader
+  apiGroup: rbac.authorization.k8s.io

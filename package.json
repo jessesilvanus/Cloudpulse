@@ -1,0 +1,24 @@
+{
+  "name": "cloudpulse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloud Observability & SRE Platform",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @cloudpulse/web --filter @cloudpulse/api dev",
+    "dev:services": "pnpm --parallel --filter @cloudpulse/api-gateway --filter @cloudpulse/order-service --filter @cloudpulse/payment-service dev",
+    "dev:all": "pnpm --parallel -r dev",
+    "traffic": "pnpm --filter @cloudpulse/traffic-generator dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --if-present test",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

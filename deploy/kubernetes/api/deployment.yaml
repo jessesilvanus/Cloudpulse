@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudpulse-api
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: cloudpulse-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: cloudpulse-platform
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudpulse-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudpulse-api
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: cloudpulse-workloads
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: cloudpulse/cloudpulse-api:v0.0.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-api
+              containerPort: 3001
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: cloudpulse-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http-api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http-api
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http-api
+            initialDelaySeconds: 2
+            periodSeconds: 3
+            failureThreshold: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudpulse-api
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: cloudpulse-api
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cloudpulse-api
+  ports:
+    - name: http-api
+      port: 3001
+      targetPort: http-api
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: cloudpulse-api-hpa
+  namespace: cloudpulse
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cloudpulse-api
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudpulse-api-pdb
+  namespace: cloudpulse
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudpulse-api

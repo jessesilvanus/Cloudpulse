@@ -1,0 +1,103 @@
+name: Deploy CloudPulse to AWS Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Deployment Environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - staging
+          - production
+      confirm_deploy:
+        description: 'Type "DEPLOY" to confirm execution'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate-and-plan:
+    name: Terraform Plan & Security Gate
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm_deploy == 'DEPLOY' }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+
+      - name: Terraform Init & Plan
+        working-directory: infra/terraform
+        run: |
+          terraform init
+          terraform plan -var="environment=${{ github.event.inputs.environment }}" -out=tfplan
+
+  deploy:
+    name: Build, Push ECR & Terraform Apply
+    runs-on: ubuntu-latest
+    needs: validate-and-plan
+    environment: production
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Images to ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ENV: ${{ github.event.inputs.environment }}
+          SHA: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/cloudpulse/$ENV/cloudpulse-web:$SHA" -t "$REGISTRY/cloudpulse/$ENV/cloudpulse-web:latest" -f apps/web/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/$ENV/cloudpulse-web:$SHA"
+          docker push "$REGISTRY/cloudpulse/$ENV/cloudpulse-web:latest"
+
+          docker build -t "$REGISTRY/cloudpulse/$ENV/cloudpulse-api:$SHA" -t "$REGISTRY/cloudpulse/$ENV/cloudpulse-api:latest" -f apps/api/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/$ENV/cloudpulse-api:$SHA"
+          docker push "$REGISTRY/cloudpulse/$ENV/cloudpulse-api:latest"
+
+          docker build -t "$REGISTRY/cloudpulse/$ENV/api-gateway:$SHA" -t "$REGISTRY/cloudpulse/$ENV/api-gateway:latest" -f services/api-gateway/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/$ENV/api-gateway:$SHA"
+          docker push "$REGISTRY/cloudpulse/$ENV/api-gateway:latest"
+
+          docker build -t "$REGISTRY/cloudpulse/$ENV/order-service:$SHA" -t "$REGISTRY/cloudpulse/$ENV/order-service:latest" -f services/order-service/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/$ENV/order-service:$SHA"
+          docker push "$REGISTRY/cloudpulse/$ENV/order-service:latest"
+
+          docker build -t "$REGISTRY/cloudpulse/$ENV/payment-service:$SHA" -t "$REGISTRY/cloudpulse/$ENV/payment-service:latest" -f services/payment-service/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/$ENV/payment-service:$SHA"
+          docker push "$REGISTRY/cloudpulse/$ENV/payment-service:latest"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+
+      - name: Terraform Apply
+        working-directory: infra/terraform
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="environment=${{ github.event.inputs.environment }}"

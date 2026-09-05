@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: metrics-storage
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: "otel-collector"
+        static_configs:
+          - targets: ["otel-collector.cloudpulse.svc.cluster.local:8889"]
+
+      - job_name: "cloudpulse-api"
+        static_configs:
+          - targets: ["cloudpulse-api.cloudpulse.svc.cluster.local:3001"]
+
+      - job_name: "api-gateway"
+        static_configs:
+          - targets: ["api-gateway.cloudpulse.svc.cluster.local:4000"]
+
+      - job_name: "order-service"
+        static_configs:
+          - targets: ["order-service.cloudpulse.svc.cluster.local:4001"]
+
+      - job_name: "payment-service"
+        static_configs:
+          - targets: ["payment-service.cloudpulse.svc.cluster.local:4002"]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: metrics-storage
+spec:
+  serviceName: prometheus
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/component: metrics-storage
+    spec:
+      serviceAccountName: cloudpulse-workloads
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.53.1
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--web.enable-lifecycle"
+          ports:
+            - name: http-prom
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+            - name: storage
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: cloudpulse
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: metrics-storage
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - name: http-prom
+      port: 9090
+      targetPort: http-prom
+      protocol: TCP

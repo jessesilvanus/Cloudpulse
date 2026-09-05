@@ -1,0 +1,13 @@
+# Example variable values for staging / production deployment
+aws_region               = "us-east-1"
+environment              = "production"
+project_name             = "cloudpulse"
+vpc_cidr                 = "10.0.0.0/16"
+availability_zones       = ["us-east-1a", "us-east-1b"]
+enable_nat_gateway       = false  # Set to true only if private egress without VPC endpoints is required
+single_nat_gateway       = true   # Set to false for multi-AZ NAT high-availability in enterprise prod
+ecs_task_cpu             = 256    # 0.25 vCPU
+ecs_task_memory          = 512    # 512 MB
+telemetry_retention_days = 30
+enable_https             = false  # Set to true with valid certificate_arn
+certificate_arn          = ""     # "arn:aws:acm:us-east-1:123456789012:certificate/abc-123"

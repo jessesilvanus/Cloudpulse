@@ -1,0 +1,15 @@
+# Production S3 Remote State Backend with DynamoDB State Locking
+# To use this in CI/CD or production:
+# 1. Create S3 bucket: cloudpulse-terraform-state-<account-id>
+# 2. Create DynamoDB table: cloudpulse-terraform-locks (Partition key: LockID [String])
+# 3. Rename this file to backend.tf and run: terraform init -reconfigure
+
+# terraform {
+#   backend "s3" {
+#     bucket         = "cloudpulse-terraform-state"
+#     key            = "environments/production/terraform.tfstate"
+#     region         = "us-east-1"
+#     dynamodb_table = "cloudpulse-terraform-locks"
+#     encrypt        = true
+#   }
+# }

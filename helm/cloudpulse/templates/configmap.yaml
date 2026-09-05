@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cloudpulse.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloudpulse.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.global.environment | quote }}
+  PORT: "3001"
+  TELEMETRY_MODE: "live"
+  API_VERSION: "v1"
+  CORS_ORIGIN: "*"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://{{ include "cloudpulse.fullname" . }}-otel-collector:4318"
+  PROMETHEUS_URL: "http://{{ include "cloudpulse.fullname" . }}-prometheus:9090"
+  LOKI_URL: "http://{{ include "cloudpulse.fullname" . }}-loki:3100"
+  TEMPO_URL: "http://{{ include "cloudpulse.fullname" . }}-tempo:3200"
+  API_GATEWAY_URL: "http://{{ include "cloudpulse.fullname" . }}-gateway:4000"
+  ORDER_SERVICE_URL: "http://{{ include "cloudpulse.fullname" . }}-order:4001"
+  PAYMENT_SERVICE_URL: "http://{{ include "cloudpulse.fullname" . }}-payment:4002"

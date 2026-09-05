@@ -1,0 +1,93 @@
+.topbar {
+  height: var(--header-height);
+  background-color: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.breadcrumb {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.breadcrumbSep {
+  color: var(--color-text-muted);
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.statusPill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-healthy);
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+
+.statusDotDegraded {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-degraded);
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+
+.statusDotUnhealthy {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-unhealthy);
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+
+.timeLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

@@ -1,0 +1,67 @@
+# ==============================================================================
+# CLOUDPULSE — Git Ignore Configuration
+# ==============================================================================
+
+# Dependencies & Stores
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build Outputs & Bundles
+dist/
+build/
+out/
+.turbo/
+.vite/
+.cache/
+
+# Test Coverage & Artifacts
+coverage/
+.nyc_output/
+*.lcov
+
+# Environment Configurations & Secret Keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.cer
+*.crt
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+kubeconfig
+*.kubeconfig
+
+# Terraform State & Lock Files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!terraform.tfvars.example
+
+# Logs & Temporary Files
+*.log
+logs/
+tmp/
+temp/
+
+# IDE, Editor & OS Artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+.DS_Store
+Thumbs.db

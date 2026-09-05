@@ -1,0 +1,18 @@
+apiVersion: v2
+name: cloudpulse
+description: Enterprise Cloud Observability, Distributed Telemetry Pipeline & SRE Console
+type: application
+version: 0.1.0
+appVersion: "0.0.3"
+keywords:
+  - observability
+  - sre
+  - opentelemetry
+  - prometheus
+  - loki
+  - tempo
+  - microservices
+home: https://github.com/cloudpulse/cloudpulse
+maintainers:
+  - name: CloudPulse Platform Engineering Team
+    email: sre@cloudpulse.internal

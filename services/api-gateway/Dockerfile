@@ -1,0 +1,48 @@
+# ── Stage 1: Build API Gateway ─────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/instrumentation/package.json ./packages/instrumentation/
+COPY services/api-gateway/package.json ./services/api-gateway/
+
+RUN pnpm install --frozen-lockfile
+
+COPY packages/shared/ ./packages/shared/
+COPY packages/instrumentation/ ./packages/instrumentation/
+COPY services/api-gateway/ ./services/api-gateway/
+
+RUN pnpm --filter @cloudpulse/shared build && \
+    pnpm --filter @cloudpulse/instrumentation build && \
+    pnpm --filter @cloudpulse/api-gateway build
+
+# ── Stage 2: Production Runner ──────────────────────────────────────────────
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=4000
+ENV ORDER_SERVICE_URL=http://order-service:4001
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
+
+COPY --from=builder /app /app
+
+USER node
+
+EXPOSE 4000
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1
+
+CMD ["node", "services/api-gateway/dist/index.js"]

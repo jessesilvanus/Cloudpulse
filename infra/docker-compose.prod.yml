@@ -1,0 +1,191 @@
+# Production-grade multi-container stack definition
+# Run: docker compose -f infra/docker-compose.prod.yml up -d
+services:
+  cloudpulse-web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: cloudpulse-web-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      cloudpulse-api:
+        condition: service_healthy
+    networks:
+      - cloudpulse-net
+
+  cloudpulse-api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    container_name: cloudpulse-api-prod
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - TELEMETRY_MODE=live
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - PROMETHEUS_URL=http://prometheus:9090
+      - LOKI_URL=http://loki:3100
+      - TEMPO_URL=http://tempo:3200
+      - API_GATEWAY_URL=http://api-gateway:4000
+      - ORDER_SERVICE_URL=http://order-service:4001
+      - PAYMENT_SERVICE_URL=http://payment-service:4002
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      - otel-collector
+      - prometheus
+      - loki
+      - tempo
+      - api-gateway
+      - order-service
+      - payment-service
+    networks:
+      - cloudpulse-net
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: cloudpulse-api-gateway-prod
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - ORDER_SERVICE_URL=http://order-service:4001
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - cloudpulse-net
+
+  order-service:
+    build:
+      context: ..
+      dockerfile: services/order-service/Dockerfile
+    container_name: cloudpulse-order-service-prod
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - PAYMENT_SERVICE_URL=http://payment-service:4002
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - cloudpulse-net
+
+  payment-service:
+    build:
+      context: ..
+      dockerfile: services/payment-service/Dockerfile
+    container_name: cloudpulse-payment-service-prod
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      - NODE_ENV=production
+      - PORT=4002
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4002/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - cloudpulse-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    container_name: cloudpulse-otel-collector-prod
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector.yml"]
+    volumes:
+      - ./observability/otel-collector/otel-collector.yml:/etc/otel-collector.yml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - cloudpulse-net
+
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    container_name: cloudpulse-prometheus-prod
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - cloudpulse-net
+
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: cloudpulse-loki-prod
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - cloudpulse-net
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    container_name: cloudpulse-tempo-prod
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./observability/tempo/tempo-config.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "3200:3200"
+    networks:
+      - cloudpulse-net
+
+networks:
+  cloudpulse-net:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+    name: cloudpulse_prod_prometheus_data
+  loki_data:
+    name: cloudpulse_prod_loki_data
+  tempo_data:
+    name: cloudpulse_prod_tempo_data

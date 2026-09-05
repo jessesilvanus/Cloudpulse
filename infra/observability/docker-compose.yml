@@ -1,0 +1,74 @@
+version: '3.8'
+
+networks:
+  cloudpulse-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    container_name: cloudpulse-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector.yml"]
+    volumes:
+      - ./otel-collector/otel-collector.yml:/etc/otel-collector.yml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Collector internal metrics
+      - "8889:8889"   # Prometheus metrics exporter
+      - "13133:13133" # Health check
+    depends_on:
+      - tempo
+      - loki
+    networks:
+      - cloudpulse-net
+
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    container_name: cloudpulse-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"   # Prometheus Web & API
+    networks:
+      - cloudpulse-net
+
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: cloudpulse-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/tmp/loki
+    ports:
+      - "3100:3100"   # Loki HTTP API
+    networks:
+      - cloudpulse-net
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    container_name: cloudpulse-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo-config.yml:/etc/tempo.yaml:ro
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP API & Search
+    networks:
+      - cloudpulse-net

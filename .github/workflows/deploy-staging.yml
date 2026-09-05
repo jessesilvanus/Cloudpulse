@@ -1,0 +1,87 @@
+name: Continuous Deployment to Staging
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: staging-deployment
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy-staging:
+    name: Build, Push ECR & Deploy to Staging EKS
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_STAGING_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Images with Git SHA
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          SHA: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/cloudpulse/staging/cloudpulse-web:$SHA" -f apps/web/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/staging/cloudpulse-web:$SHA"
+
+          docker build -t "$REGISTRY/cloudpulse/staging/cloudpulse-api:$SHA" -f apps/api/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/staging/cloudpulse-api:$SHA"
+
+          docker build -t "$REGISTRY/cloudpulse/staging/api-gateway:$SHA" -f services/api-gateway/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/staging/api-gateway:$SHA"
+
+          docker build -t "$REGISTRY/cloudpulse/staging/order-service:$SHA" -f services/order-service/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/staging/order-service:$SHA"
+
+          docker build -t "$REGISTRY/cloudpulse/staging/payment-service:$SHA" -f services/payment-service/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/staging/payment-service:$SHA"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Connect to Staging EKS Cluster
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name cloudpulse-staging-eks
+
+      - name: Deploy Staging Helm Release with Rollout Verification
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          SHA: ${{ github.sha }}
+        run: |
+          helm upgrade --install cloudpulse ./helm/cloudpulse \
+            --namespace cloudpulse \
+            --create-namespace \
+            -f ./helm/cloudpulse/values-dev.yaml \
+            --set web.image.repository="$REGISTRY/cloudpulse/staging/cloudpulse-web" \
+            --set web.image.tag="$SHA" \
+            --set api.image.repository="$REGISTRY/cloudpulse/staging/cloudpulse-api" \
+            --set api.image.tag="$SHA" \
+            --set gateway.image.repository="$REGISTRY/cloudpulse/staging/api-gateway" \
+            --set gateway.image.tag="$SHA" \
+            --set order.image.repository="$REGISTRY/cloudpulse/staging/order-service" \
+            --set order.image.tag="$SHA" \
+            --set payment.image.repository="$REGISTRY/cloudpulse/staging/payment-service" \
+            --set payment.image.tag="$SHA" \
+            --wait \
+            --timeout 300s
+
+      - name: Run Staging Smoke Test
+        run: |
+          npx tsx test/cloud-smoke-test.ts

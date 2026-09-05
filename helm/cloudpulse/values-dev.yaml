@@ -1,0 +1,25 @@
+# Development environment overrides
+global:
+  environment: "development"
+
+web:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+api:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+gateway:
+  replicaCount: 1
+
+order:
+  replicaCount: 1
+
+payment:
+  replicaCount: 1
+
+networkPolicy:
+  enabled: false

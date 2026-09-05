@@ -1,0 +1,143 @@
+name: Production Release & Deployment
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version tag (e.g. v0.0.3)'
+        required: true
+        default: 'v0.0.3'
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  production-deploy:
+    name: Deploy to Production Amazon EKS
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Release Code
+        uses: actions/checkout@v4
+
+      - name: Determine Release Tag
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.release_version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+          echo "SHA=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PROD_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag & Push Production Images
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          VERSION: ${{ steps.vars.outputs.VERSION }}
+          SHA: ${{ steps.vars.outputs.SHA }}
+        run: |
+          # 1. Web Frontend
+          docker build -t "$REGISTRY/cloudpulse/production/cloudpulse-web:$VERSION" \
+                       -t "$REGISTRY/cloudpulse/production/cloudpulse-web:$SHA" \
+                       -f apps/web/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/production/cloudpulse-web:$VERSION"
+          docker push "$REGISTRY/cloudpulse/production/cloudpulse-web:$SHA"
+
+          # 2. Telemetry API Gateway
+          docker build -t "$REGISTRY/cloudpulse/production/cloudpulse-api:$VERSION" \
+                       -t "$REGISTRY/cloudpulse/production/cloudpulse-api:$SHA" \
+                       -f apps/api/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/production/cloudpulse-api:$VERSION"
+          docker push "$REGISTRY/cloudpulse/production/cloudpulse-api:$SHA"
+
+          # 3. Ingress Microservice
+          docker build -t "$REGISTRY/cloudpulse/production/api-gateway:$VERSION" \
+                       -t "$REGISTRY/cloudpulse/production/api-gateway:$SHA" \
+                       -f services/api-gateway/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/production/api-gateway:$VERSION"
+          docker push "$REGISTRY/cloudpulse/production/api-gateway:$SHA"
+
+          # 4. Order Saga Service
+          docker build -t "$REGISTRY/cloudpulse/production/order-service:$VERSION" \
+                       -t "$REGISTRY/cloudpulse/production/order-service:$SHA" \
+                       -f services/order-service/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/production/order-service:$VERSION"
+          docker push "$REGISTRY/cloudpulse/production/order-service:$SHA"
+
+          # 5. Payment Sandbox Service
+          docker build -t "$REGISTRY/cloudpulse/production/payment-service:$VERSION" \
+                       -t "$REGISTRY/cloudpulse/production/payment-service:$SHA" \
+                       -f services/payment-service/Dockerfile .
+          docker push "$REGISTRY/cloudpulse/production/payment-service:$VERSION"
+          docker push "$REGISTRY/cloudpulse/production/payment-service:$SHA"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Connect to Production EKS Cluster
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name cloudpulse-production-eks
+
+      - name: Atomic Production Helm Upgrade & Rollout Verification
+        id: helm-deploy
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          VERSION: ${{ steps.vars.outputs.VERSION }}
+        run: |
+          helm upgrade --install cloudpulse ./helm/cloudpulse \
+            --namespace cloudpulse \
+            --create-namespace \
+            -f ./helm/cloudpulse/values-prod.yaml \
+            --set web.image.repository="$REGISTRY/cloudpulse/production/cloudpulse-web" \
+            --set web.image.tag="$VERSION" \
+            --set api.image.repository="$REGISTRY/cloudpulse/production/cloudpulse-api" \
+            --set api.image.tag="$VERSION" \
+            --set gateway.image.repository="$REGISTRY/cloudpulse/production/api-gateway" \
+            --set gateway.image.tag="$VERSION" \
+            --set order.image.repository="$REGISTRY/cloudpulse/production/order-service" \
+            --set order.image.tag="$VERSION" \
+            --set payment.image.repository="$REGISTRY/cloudpulse/production/payment-service" \
+            --set payment.image.tag="$VERSION" \
+            --atomic \
+            --wait \
+            --timeout 360s
+
+      - name: Verify Kubernetes Rollout Status
+        run: |
+          kubectl rollout status deployment/cloudpulse-web -n cloudpulse --timeout=120s
+          kubectl rollout status deployment/cloudpulse-api -n cloudpulse --timeout=120s
+          kubectl rollout status deployment/api-gateway -n cloudpulse --timeout=120s
+          kubectl rollout status deployment/order-service -n cloudpulse --timeout=120s
+          kubectl rollout status deployment/payment-service -n cloudpulse --timeout=120s
+
+      - name: Execute Post-Deployment Production Smoke Test
+        run: |
+          npx tsx test/cloud-smoke-test.ts
+
+      - name: Automated Rollback on Deployment Failure
+        if: failure()
+        run: |
+          echo "::error::Production deployment or smoke tests failed! Triggering automatic rollback..."
+          helm rollback cloudpulse -n cloudpulse || true
+          kubectl rollout undo deployment/cloudpulse-web -n cloudpulse || true
+          kubectl rollout undo deployment/cloudpulse-api -n cloudpulse || true

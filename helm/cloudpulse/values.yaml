@@ -1,0 +1,147 @@
+# ── Global Settings ─────────────────────────────────────────────────────────
+global:
+  environment: "production"
+  imageRegistry: "docker.io"
+  imagePullSecrets: []
+  namespace: "cloudpulse"
+
+# ── CloudPulse Web Frontend ──────────────────────────────────────────────────
+web:
+  replicaCount: 2
+  image:
+    repository: cloudpulse/cloudpulse-web
+    tag: "v0.0.3"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
+
+# ── CloudPulse API Gateway ───────────────────────────────────────────────────
+api:
+  replicaCount: 2
+  image:
+    repository: cloudpulse/cloudpulse-api
+    tag: "v0.0.3"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    httpPort: 3001
+    otlpPort: 4318
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# ── Microservices ────────────────────────────────────────────────────────────
+gateway:
+  replicaCount: 2
+  image:
+    repository: cloudpulse/api-gateway
+    tag: "v0.0.3"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+order:
+  replicaCount: 2
+  image:
+    repository: cloudpulse/order-service
+    tag: "v0.0.3"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+payment:
+  replicaCount: 2
+  image:
+    repository: cloudpulse/payment-service
+    tag: "v0.0.3"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+trafficGenerator:
+  enabled: true
+  image:
+    repository: cloudpulse/traffic-generator
+    tag: "v0.0.3"
+    pullPolicy: IfNotPresent
+
+# ── Telemetry Pipeline ───────────────────────────────────────────────────────
+observability:
+  otelCollector:
+    image: "otel/opentelemetry-collector-contrib:0.104.0"
+  prometheus:
+    image: "prom/prometheus:v2.53.1"
+    storageSize: "10Gi"
+  loki:
+    image: "grafana/loki:3.0.0"
+    storageSize: "10Gi"
+  tempo:
+    image: "grafana/tempo:2.5.0"
+    storageSize: "10Gi"
+
+# ── Ingress ──────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: ""
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /gateway
+          pathType: Prefix
+          service: gateway
+        - path: /
+          pathType: Prefix
+          service: web
+  tls: []
+
+# ── Network Policies & RBAC ──────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+
+rbac:
+  create: true
+  serviceAccountName: "cloudpulse-workloads"
