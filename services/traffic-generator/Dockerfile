@@ -1,5 +1,5 @@
 # ── Stage 1: Build Traffic Generator ─────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ COPY services/traffic-generator/ ./services/traffic-generator/
 RUN pnpm --filter @cloudpulse/traffic-generator build
 
 # ── Stage 2: Runner ────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
