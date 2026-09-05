@@ -172,8 +172,8 @@ app.use((_req, res) => {
 app.use(standardizedErrorHandler);
 
 // ─── Start Standalone Telemetry OTLP Ingestion Engine (Port 4318) ────────────
-startTelemetryEngine(4318).catch((err) => {
-  logger.warn(`Telemetry Engine Port 4318 already in use or bypassed: ${err.message}`);
+startTelemetryEngine(4318).catch((err: any) => {
+  logger.warn(`Telemetry Engine Port 4318 already in use or bypassed: ${err?.message || err}`);
 });
 
 // ─── Start CLOUDPULSE Gateway Server ──────────────────────────────────────────
