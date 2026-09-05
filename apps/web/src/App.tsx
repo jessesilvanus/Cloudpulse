@@ -83,6 +83,7 @@ export function App() {
               <AppShell>
                 <Routes>
                   <Route path="/" element={<Navigate to="/overview" replace />} />
+                  <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
                   <Route path="/overview" element={<OverviewPage />} />
                   <Route path="/platform" element={<PlatformObservabilityPage />} />
                   <Route path="/situations/:id" element={<SituationDetailPage />} />

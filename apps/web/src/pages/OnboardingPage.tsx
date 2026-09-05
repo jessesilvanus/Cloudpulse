@@ -8,10 +8,11 @@ import { CheckCircleIcon, ShieldIcon, SparklesIcon, AlertTriangleIcon } from '..
 import type { CloudConnection } from '@cloudpulse/shared';
 
 export function OnboardingPage() {
-  const { user, workspace } = useAuth();
+  const { user, workspace, completeOnboarding } = useAuth();
   const navigate = useNavigate();
   const [connections, setConnections] = useState<CloudConnection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [completing, setCompleting] = useState(false);
 
   useEffect(() => {
     async function loadConnections() {
@@ -27,6 +28,18 @@ export function OnboardingPage() {
     }
     loadConnections();
   }, []);
+
+  const handleProceed = async () => {
+    try {
+      setCompleting(true);
+      await completeOnboarding();
+    } catch (err) {
+      console.error('Error completing onboarding:', err);
+    } finally {
+      setCompleting(false);
+      navigate('/overview');
+    }
+  };
 
   const awsConn = connections.find((c) => c.provider === 'AWS');
   const azureConn = connections.find((c) => c.provider === 'AZURE');
@@ -477,10 +490,15 @@ export function OnboardingPage() {
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => navigate('/overview')}
+              onClick={handleProceed}
+              disabled={completing}
               style={{ padding: '10px 20px', fontWeight: 700 }}
             >
-              {hasAnyConnection ? 'Enter Command Center →' : 'Skip & Go to Dashboard →'}
+              {completing
+                ? 'Saving Workspace State...'
+                : hasAnyConnection
+                ? 'Enter Command Center →'
+                : 'Skip & Go to Dashboard →'}
             </button>
           </div>
         </div>

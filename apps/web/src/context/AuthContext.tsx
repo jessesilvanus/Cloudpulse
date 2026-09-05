@@ -11,6 +11,7 @@ export interface UserProfile {
   status: string;
   organizationId: string;
   workspaceId: string;
+  onboardingCompleted?: boolean;
   createdAt: string;
   lastLoginAt: string;
 }
@@ -61,6 +62,7 @@ interface AuthContextType {
   completeOAuth: (ticket: string) => Promise<void>;
   loginWithOAuth: (provider: 'google' | 'microsoft' | 'apple', profile: { email: string; name: string }) => Promise<void>;
   register: (payload: { name: string; email: string; password?: string; provider?: string; role?: string }) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
   logout: () => Promise<void>;
   setWorkspace: (ws: Workspace) => void;
   refreshUser: () => Promise<void>;
@@ -203,6 +205,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const completeOnboarding = async () => {
+    try {
+      const res = await authApi.completeOnboarding();
+      if (res?.user) {
+        setUser(res.user);
+      } else {
+        setUser((prev) => (prev ? { ...prev, onboardingCompleted: true } : null));
+      }
+    } catch {
+      setUser((prev) => (prev ? { ...prev, onboardingCompleted: true } : null));
+    }
+  };
+
   const logout = async () => {
     try {
       await authApi.logout();
@@ -238,6 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         completeOAuth,
         loginWithOAuth,
         register,
+        completeOnboarding,
         logout,
         setWorkspace,
         refreshUser: fetchSession,

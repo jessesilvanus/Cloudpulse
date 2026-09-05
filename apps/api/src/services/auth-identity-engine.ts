@@ -83,6 +83,7 @@ export class AuthIdentityEngine {
       status: 'ACTIVE',
       organizationId: orgId,
       workspaceId: wsId,
+      onboardingCompleted: true,
       createdAt: '2026-01-01T00:00:00Z',
       lastLoginAt: new Date().toISOString()
     };
@@ -148,6 +149,7 @@ export class AuthIdentityEngine {
       status: 'ACTIVE',
       organizationId: orgId,
       workspaceId: wsId,
+      onboardingCompleted: false,
       createdAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString()
     };
@@ -641,7 +643,10 @@ export class AuthIdentityEngine {
   }
 
   public verifySession(token: string): UserProfile | null {
-    return this.sessions.get(token) || null;
+    const cachedUser = this.sessions.get(token);
+    if (!cachedUser) return null;
+    const latestUser = this.users.get(cachedUser.id);
+    return latestUser || cachedUser;
   }
 
   public logout(token: string): boolean {
@@ -654,9 +659,19 @@ export class AuthIdentityEngine {
       throw new Error(`User with ID '${userId}' not found.`);
     }
 
-    if (updates.name) user.name = updates.name;
-    if (updates.avatarUrl) user.avatarUrl = updates.avatarUrl;
+    if (updates.name !== undefined) user.name = updates.name;
+    if (updates.avatarUrl !== undefined) user.avatarUrl = updates.avatarUrl;
+    if (updates.onboardingCompleted !== undefined) user.onboardingCompleted = updates.onboardingCompleted;
 
+    return user;
+  }
+
+  public completeOnboarding(userId: string): UserProfile {
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error(`User with ID '${userId}' not found.`);
+    }
+    user.onboardingCompleted = true;
     return user;
   }
 

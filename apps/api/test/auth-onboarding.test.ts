@@ -521,4 +521,63 @@ describe('CLOUDPULSE — Multi-Provider Sign-In & Cloud Connection Onboarding Su
     assert.strictEqual(valJson.data.connection.status, 'CONNECTED');
     assert.ok(valJson.data.validation);
   });
+
+  // ─── 8. Onboarding Completion & State Persistence ────────────────────────────
+
+  it('21. [ONBOARDING] Brand-new user has onboardingCompleted = false initially', async () => {
+    const email = `new.onboard-${Date.now()}@enterprise.io`;
+    const regRes = await fetch(`${baseUrl}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'New Onboarder',
+        email,
+        password: 'CloudPulseSecurePass2026!',
+      }),
+    });
+
+    const regJson = await regRes.json();
+    assert.strictEqual(regRes.status, 201);
+    assert.strictEqual(regJson.data.user.onboardingCompleted, false);
+
+    const token = regJson.data.token;
+    const meRes = await fetch(`${baseUrl}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const meJson = await meRes.json();
+    assert.strictEqual(meJson.data.user.onboardingCompleted, false);
+  });
+
+  it('22. [ONBOARDING] POST /auth/onboarding/complete persists onboardingCompleted = true permanently', async () => {
+    const email = `persisted.onboard-${Date.now()}@enterprise.io`;
+    const regRes = await fetch(`${baseUrl}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Persistent User',
+        email,
+        password: 'CloudPulseSecurePass2026!',
+      }),
+    });
+
+    const regJson = await regRes.json();
+    const token = regJson.data.token;
+
+    // Call /onboarding/complete
+    const completeRes = await fetch(`${baseUrl}/auth/onboarding/complete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const completeJson = await completeRes.json();
+    assert.strictEqual(completeRes.status, 200);
+    assert.strictEqual(completeJson.ok, true);
+    assert.strictEqual(completeJson.data.user.onboardingCompleted, true);
+
+    // Verify subsequent session query (/auth/me) returns onboardingCompleted = true
+    const meRes = await fetch(`${baseUrl}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const meJson = await meRes.json();
+    assert.strictEqual(meJson.data.user.onboardingCompleted, true);
+  });
 });

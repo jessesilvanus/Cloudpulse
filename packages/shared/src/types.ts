@@ -4285,6 +4285,7 @@ export interface UserProfile {
   status: 'ACTIVE' | 'PENDING' | 'SUSPENDED';
   organizationId: string;
   workspaceId: string;
+  onboardingCompleted?: boolean;
   createdAt: string;
   lastLoginAt: string;
 }

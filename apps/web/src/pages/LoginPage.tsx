@@ -15,14 +15,22 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const { login, initiateOAuth, register, configuredProviders } = useAuth();
+  const { user, isAuthenticated, login, initiateOAuth, register, configuredProviders } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const returnUrl = (location.state as any)?.from?.pathname || '/overview';
+  const rawReturnUrl = (location.state as any)?.from?.pathname;
+  const returnUrl = rawReturnUrl && rawReturnUrl !== '/login' && rawReturnUrl !== '/register' ? rawReturnUrl : '/overview';
 
   useEffect(() => {
     document.title = 'CLOUDPULSE — Real-Time Cloud Intelligence & Operations Platform';
-  }, []);
+    if (isAuthenticated && user) {
+      if (user.onboardingCompleted === false) {
+        navigate('/onboarding', { replace: true });
+      } else {
+        navigate(returnUrl, { replace: true });
+      }
+    }
+  }, [isAuthenticated, user, navigate, returnUrl]);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

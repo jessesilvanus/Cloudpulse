@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -21,6 +21,16 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // If brand-new user with incomplete onboarding attempts to access dashboard before skipping/completing
+  if (
+    user &&
+    user.onboardingCompleted === false &&
+    location.pathname !== '/onboarding' &&
+    !location.pathname.startsWith('/settings/cloud-connections')
+  ) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return <>{children}</>;

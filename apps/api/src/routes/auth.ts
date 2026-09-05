@@ -297,6 +297,35 @@ authRouter.put('/profile', (req: Request, res: Response) => {
   }
 });
 
+authRouter.post('/onboarding/complete', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : null;
+  if (!token) {
+    return res.status(401).json({ ok: false, error: { message: 'Missing Bearer token.' } });
+  }
+
+  const user = authEngine.verifySession(token);
+  if (!user) {
+    return res.status(401).json({ ok: false, error: { message: 'Invalid or expired session.' } });
+  }
+
+  try {
+    const updated = authEngine.completeOnboarding(user.id);
+    const org = authEngine.getOrganization(updated.organizationId);
+    const ws = authEngine.getWorkspace(updated.workspaceId);
+    return res.json({
+      ok: true,
+      data: {
+        user: updated,
+        organization: org,
+        workspace: ws,
+      },
+    });
+  } catch (err: any) {
+    return res.status(400).json({ ok: false, error: { message: err.message } });
+  }
+});
+
 authRouter.post('/logout', (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : null;

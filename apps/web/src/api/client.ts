@@ -1321,10 +1321,14 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
-  updateProfile: (updates: { name?: string; avatarUrl?: string }) =>
+  updateProfile: (updates: { name?: string; avatarUrl?: string; onboardingCompleted?: boolean }) =>
     fetchJson<any>('/auth/profile', {
       method: 'PUT',
       body: JSON.stringify(updates),
+    }),
+  completeOnboarding: () =>
+    fetchJson<any>('/auth/onboarding/complete', {
+      method: 'POST',
     }),
   logout: () =>
     fetchJson<any>('/auth/logout', {

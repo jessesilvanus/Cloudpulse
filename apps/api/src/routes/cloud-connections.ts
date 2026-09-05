@@ -69,7 +69,7 @@ cloudConnectionsRouter.post('/aws/setup-info', (req: Request, res: Response) => 
 });
 
 cloudConnectionsRouter.post('/aws/connect', async (req: Request, res: Response) => {
-  const { workspaceId, organizationId, userId } = getContext(req);
+  const { user, workspaceId, organizationId, userId } = getContext(req);
   const { displayName, roleArn, externalId } = req.body;
 
   if (!roleArn || !externalId) {
@@ -85,6 +85,7 @@ cloudConnectionsRouter.post('/aws/connect', async (req: Request, res: Response) 
       roleArn,
       externalId
     });
+    if (user?.id) authEngine.completeOnboarding(user.id);
     return res.status(201).json({ ok: true, data: conn });
   } catch (err: any) {
     return res.status(400).json({ ok: false, error: { message: err.message } });
@@ -103,7 +104,7 @@ cloudConnectionsRouter.post('/azure/setup-info', (req: Request, res: Response) =
 });
 
 cloudConnectionsRouter.post('/azure/connect', async (req: Request, res: Response) => {
-  const { workspaceId, organizationId, userId } = getContext(req);
+  const { user, workspaceId, organizationId, userId } = getContext(req);
   const { displayName, tenantId, subscriptionId, clientId } = req.body;
 
   if (!tenantId || !subscriptionId) {
@@ -120,6 +121,7 @@ cloudConnectionsRouter.post('/azure/connect', async (req: Request, res: Response
       subscriptionId,
       clientId
     });
+    if (user?.id) authEngine.completeOnboarding(user.id);
     return res.status(201).json({ ok: true, data: conn });
   } catch (err: any) {
     return res.status(400).json({ ok: false, error: { message: err.message } });
@@ -138,7 +140,7 @@ cloudConnectionsRouter.post('/gcp/setup-info', (req: Request, res: Response) => 
 });
 
 cloudConnectionsRouter.post('/gcp/connect', async (req: Request, res: Response) => {
-  const { workspaceId, organizationId, userId } = getContext(req);
+  const { user, workspaceId, organizationId, userId } = getContext(req);
   const { displayName, projectId, clientEmail, projectNumber } = req.body;
 
   if (!projectId) {
@@ -155,6 +157,7 @@ cloudConnectionsRouter.post('/gcp/connect', async (req: Request, res: Response) 
       clientEmail,
       projectNumber
     });
+    if (user?.id) authEngine.completeOnboarding(user.id);
     return res.status(201).json({ ok: true, data: conn });
   } catch (err: any) {
     return res.status(400).json({ ok: false, error: { message: err.message } });
