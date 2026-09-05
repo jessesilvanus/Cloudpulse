@@ -159,6 +159,8 @@ app.use('/api/sre', sreRouter);
 app.use('/api/workflow', workflowRouter);
 app.use('/api/finops', finopsRouter);
 app.use('/api/platform', platformRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/cloud-connections', cloudConnectionsRouter);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 

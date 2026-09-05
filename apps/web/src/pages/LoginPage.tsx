@@ -24,14 +24,14 @@ export function LoginPage() {
 
   useEffect(() => {
     document.title = 'CLOUDPULSE — Real-Time Cloud Intelligence & Operations Platform';
-    if (isAuthenticated && user) {
+    if (isAuthenticated && user && !loading) {
       if (user.onboardingCompleted === false) {
         navigate('/onboarding', { replace: true });
       } else {
         navigate(returnUrl, { replace: true });
       }
     }
-  }, [isAuthenticated, user, navigate, returnUrl]);
+  }, [isAuthenticated, user, navigate, returnUrl, loading]);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,12 +69,16 @@ export function LoginPage() {
 
     try {
       if (mode === 'LOGIN') {
-        // login() updates AuthContext → useEffect redirect fires automatically
-        await login({ email: cleanEmail, password });
+        const session = await login({ email: cleanEmail, password });
         setSuccessMsg('Signed in successfully. Loading workspace...');
+        const dest = session?.user?.onboardingCompleted === false ? '/onboarding' : returnUrl;
+        navigate(dest, { replace: true });
+        return;
       } else if (mode === 'REGISTER') {
         await register({ name: name.trim(), email: cleanEmail, password, role });
         setSuccessMsg('Account created successfully! Proceeding to onboarding...');
+        navigate('/onboarding', { replace: true });
+        return;
       } else if (mode === 'FORGOT') {
         const res = await authApi.forgotPassword(cleanEmail);
         setSuccessMsg(res.message || 'If an account exists for that email, a reset link has been sent.');

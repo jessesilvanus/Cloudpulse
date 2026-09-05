@@ -57,11 +57,11 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   configuredProviders: ConfiguredProviders | null;
-  login: (credentials: { email: string; password?: string }) => Promise<void>;
+  login: (credentials: { email: string; password?: string }) => Promise<any>;
   initiateOAuth: (provider: 'google' | 'microsoft' | 'apple', returnUrl?: string) => Promise<void>;
   completeOAuth: (ticket: string) => Promise<void>;
   loginWithOAuth: (provider: 'google' | 'microsoft' | 'apple', profile: { email: string; name: string }) => Promise<void>;
-  register: (payload: { name: string; email: string; password?: string; provider?: string; role?: string }) => Promise<void>;
+  register: (payload: { name: string; email: string; password?: string; provider?: string; role?: string }) => Promise<any>;
   completeOnboarding: () => Promise<void>;
   logout: () => Promise<void>;
   setWorkspace: (ws: Workspace) => void;
@@ -142,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('cloudpulse_workspace_id', res.workspace.id);
       }
     }
+    return res;
   };
 
   const initiateOAuth = async (provider: 'google' | 'microsoft' | 'apple', returnUrl?: string) => {
@@ -203,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('cloudpulse_workspace_id', res.workspace.id);
       }
     }
+    return res;
   };
 
   const completeOnboarding = async () => {
