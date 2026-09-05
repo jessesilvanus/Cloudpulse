@@ -106,10 +106,9 @@ export function OnboardingPage() {
             border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-md)',
             padding: '16px 20px',
-            display: 'flex',
-            justifyContent: 'space-between',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
             alignItems: 'center',
-            flexWrap: 'wrap',
             gap: '12px',
           }}
         >
@@ -222,7 +221,7 @@ export function OnboardingPage() {
         </div>
 
         {/* Cloud Provider Connection Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '16px' }}>
           {/* 1. AWS Card */}
           <div
             style={{

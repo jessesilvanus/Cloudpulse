@@ -48,7 +48,10 @@ ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
 
 # Copy built node_modules and built dist folders from builder
-COPY --from=builder /app /app
+COPY --chown=node:node --from=builder /app /app
+
+# Ensure persistent data directory exists with write permissions for node user
+RUN mkdir -p /app/data && chown -R node:node /app/data
 
 # Run as non-root node user for container security
 USER node

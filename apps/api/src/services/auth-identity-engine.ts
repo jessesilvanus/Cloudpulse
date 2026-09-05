@@ -9,6 +9,9 @@ import {
   OAuthAuthorizationResponse
 } from '@cloudpulse/shared';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
 interface OAuthPendingState {
   provider: 'google' | 'apple' | 'microsoft';
@@ -38,6 +41,10 @@ export class AuthIdentityEngine {
 
   private constructor() {
     this.seedInitialTenants();
+    this.loadStore();
+    // Ensure default tenants are re-asserted if store was empty
+    this.seedInitialTenants();
+    this.persistStore();
   }
 
   public static getInstance(): AuthIdentityEngine {
@@ -45,6 +52,94 @@ export class AuthIdentityEngine {
       AuthIdentityEngine.instance = new AuthIdentityEngine();
     }
     return AuthIdentityEngine.instance;
+  }
+
+  private getStoreFilePath(): string {
+    const customDir = process.env['DATA_DIR'];
+    if (customDir) {
+      try {
+        if (!fs.existsSync(customDir)) fs.mkdirSync(customDir, { recursive: true });
+        return path.join(customDir, 'cloudpulse-auth-store.json');
+      } catch {
+        // Fallback to primary below
+      }
+    }
+    const primaryDir = path.resolve(process.cwd(), 'data');
+    try {
+      if (!fs.existsSync(primaryDir)) fs.mkdirSync(primaryDir, { recursive: true });
+      return path.join(primaryDir, 'cloudpulse-auth-store.json');
+    } catch {
+      return path.join(os.tmpdir(), 'cloudpulse-auth-store.json');
+    }
+  }
+
+  private isTestMode(): boolean {
+    return process.env['NODE_ENV'] === 'test' || process.argv.some((arg) => arg.includes('test'));
+  }
+
+  private loadStore(): void {
+    if (this.isTestMode()) return;
+    try {
+      const filePath = this.getStoreFilePath();
+      if (!fs.existsSync(filePath)) return;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      if (!raw || !raw.trim()) return;
+      const data = JSON.parse(raw);
+      if (data.users) {
+        for (const [k, v] of Object.entries(data.users)) this.users.set(k, v as UserProfile);
+      }
+      if (data.userPasswords) {
+        for (const [k, v] of Object.entries(data.userPasswords)) this.userPasswords.set(k, v as string);
+      }
+      if (data.organizations) {
+        for (const [k, v] of Object.entries(data.organizations)) this.organizations.set(k, v as Organization);
+      }
+      if (data.workspaces) {
+        for (const [k, v] of Object.entries(data.workspaces)) this.workspaces.set(k, v as Workspace);
+      }
+      if (data.memberships) {
+        for (const [k, v] of Object.entries(data.memberships)) this.memberships.set(k, v as Membership);
+      }
+      if (data.sessions) {
+        for (const [k, v] of Object.entries(data.sessions)) this.sessions.set(k, v as UserProfile);
+      }
+      if (data.resetTokens) {
+        const now = Date.now();
+        for (const [k, v] of Object.entries(data.resetTokens)) {
+          const entry = v as { email: string; expiresAt: number };
+          if (entry.expiresAt > now) {
+            this.resetTokens.set(k, entry);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[AuthEngine] Failed to load persisted auth store:', err?.message || err);
+    }
+  }
+
+  private persistStore(): void {
+    if (this.isTestMode()) return;
+    try {
+      const filePath = this.getStoreFilePath();
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const data = {
+        users: Object.fromEntries(this.users),
+        userPasswords: Object.fromEntries(this.userPasswords),
+        organizations: Object.fromEntries(this.organizations),
+        workspaces: Object.fromEntries(this.workspaces),
+        memberships: Object.fromEntries(this.memberships),
+        sessions: Object.fromEntries(this.sessions),
+        resetTokens: Object.fromEntries(this.resetTokens),
+      };
+      const tmpPath = `${filePath}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, filePath);
+    } catch (err: any) {
+      console.warn('[AuthEngine] Failed to persist auth store:', err?.message || err);
+    }
   }
 
   private hashPassword(password: string): string {
@@ -171,6 +266,7 @@ export class AuthIdentityEngine {
 
     const token = `cp-token-${crypto.randomBytes(16).toString('hex')}`;
     this.sessions.set(token, user);
+    this.persistStore();
 
     return { user, token, organization: org, workspace: ws };
   }
@@ -213,6 +309,7 @@ export class AuthIdentityEngine {
 
     const token = `cp-token-${crypto.randomBytes(16).toString('hex')}`;
     this.sessions.set(token, user);
+    this.persistStore();
 
     return { user, token, organization: org, workspace: ws };
   }
@@ -246,6 +343,7 @@ export class AuthIdentityEngine {
       };
       const token = `cp-token-${crypto.randomBytes(16).toString('hex')}`;
       this.sessions.set(token, existing);
+      this.persistStore();
       return { user: existing, token, organization: org, workspace: ws };
     }
 
@@ -622,6 +720,23 @@ export class AuthIdentityEngine {
     return entry.session;
   }
 
+  public forgotPassword(email: string): { resetToken: string; message: string } {
+    const emailKey = email.toLowerCase();
+    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
+    const genericMessage = 'If an account exists for that email address, a password reset link has been sent.';
+
+    if (!user) {
+      return { resetToken: '', message: genericMessage };
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    this.resetTokens.set(hashedToken, { email: emailKey, expiresAt: Date.now() + 3600000 });
+    this.persistStore();
+
+    return { resetToken: rawToken, message: genericMessage };
+  }
+
   public async forgotPasswordAsync(email: string): Promise<{ message: string }> {
     const emailKey = email.toLowerCase();
     const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
@@ -638,6 +753,7 @@ export class AuthIdentityEngine {
     // Store only the SHA-256 hash — never the raw token
     const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
     this.resetTokens.set(hashedToken, { email: emailKey, expiresAt: Date.now() + 3600000 });
+    this.persistStore();
 
     // Build reset URL using FRONTEND_URL env var
     const frontendUrl = (process.env['FRONTEND_URL'] || 'https://cloudpulse-web-w4ru-ten.vercel.app').replace(/\/+$/, '');
@@ -668,6 +784,7 @@ export class AuthIdentityEngine {
     if (!entry || entry.expiresAt < Date.now()) {
       // Clean up expired token if present
       if (entry) this.resetTokens.delete(hashedToken);
+      this.persistStore();
       throw new Error('Invalid or expired password reset token.');
     }
 
@@ -683,6 +800,7 @@ export class AuthIdentityEngine {
         }
       }
     }
+    this.persistStore();
     return true;
   }
 
@@ -694,7 +812,9 @@ export class AuthIdentityEngine {
   }
 
   public logout(token: string): boolean {
-    return this.sessions.delete(token);
+    const res = this.sessions.delete(token);
+    this.persistStore();
+    return res;
   }
 
   public updateProfile(userId: string, updates: Partial<UserProfile>): UserProfile {
@@ -707,6 +827,7 @@ export class AuthIdentityEngine {
     if (updates.avatarUrl !== undefined) user.avatarUrl = updates.avatarUrl;
     if (updates.onboardingCompleted !== undefined) user.onboardingCompleted = updates.onboardingCompleted;
 
+    this.persistStore();
     return user;
   }
 
@@ -716,6 +837,7 @@ export class AuthIdentityEngine {
       throw new Error(`User with ID '${userId}' not found.`);
     }
     user.onboardingCompleted = true;
+    this.persistStore();
     return user;
   }
 
@@ -741,12 +863,18 @@ export class AuthIdentityEngine {
       createdAt: new Date().toISOString()
     };
     this.workspaces.set(wsId, ws);
+    this.persistStore();
     return ws;
   }
 
   public validateWorkspaceAccess(userId: string, workspaceId: string): boolean {
     const user = this.users.get(userId);
     if (!user) return false;
-    return user.workspaceId === workspaceId || user.role === 'OWNER' || user.role === 'ADMIN';
+    // Direct workspace match
+    if (user.workspaceId === workspaceId) return true;
+    // Secondary match: workspace must belong to the user's organization
+    const ws = this.workspaces.get(workspaceId);
+    if (!ws) return false;
+    return ws.organizationId === user.organizationId;
   }
 }
