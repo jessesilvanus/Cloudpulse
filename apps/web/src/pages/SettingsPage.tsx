@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSimulation } from '../api/hooks.ts';
-import { api, cloudConnectionsApi } from '../api/client.ts';
+import { api, cloudConnectionsApi, kubernetesOperationsApi } from '../api/client.ts';
 import { PageHeader } from '../components/ui/PageHeader.tsx';
 import { Card } from '../components/ui/StatCard.tsx';
 import { StatusBadge } from '../components/ui/StatusBadge.tsx';
@@ -17,22 +17,101 @@ export function SettingsPage() {
   const [updating, setUpdating] = useState(false);
   const [liveTestStatus, setLiveTestStatus] = useState<string | null>(null);
   const [cloudConnections, setCloudConnections] = useState<CloudConnection[]>([]);
+  const [kubernetesConnections, setKubernetesConnections] = useState<any[]>([]);
   const [loadingConns, setLoadingConns] = useState(false);
+  const [actionPending, setActionPending] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const loadAllConnections = async () => {
+    try {
+      setLoadingConns(true);
+      const [conns, k8s] = await Promise.all([
+        cloudConnectionsApi.getCloudConnections().catch(() => []),
+        kubernetesOperationsApi.getKubernetesConnections().catch(() => []),
+      ]);
+      setCloudConnections(Array.isArray(conns) ? conns : []);
+      setKubernetesConnections(Array.isArray(k8s) ? k8s : []);
+    } catch (err) {
+      console.error('Failed to load connections:', err);
+    } finally {
+      setLoadingConns(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadConnections() {
-      try {
-        setLoadingConns(true);
-        const conns = await cloudConnectionsApi.getCloudConnections();
-        setCloudConnections(conns);
-      } catch (err) {
-        console.error('Failed to load connections:', err);
-      } finally {
-        setLoadingConns(false);
-      }
-    }
-    loadConnections();
+    loadAllConnections();
   }, []);
+
+  const handleRevalidateCloud = async (id: string, name: string) => {
+    try {
+      setActionPending(id);
+      setActionMsg(null);
+      const res = await cloudConnectionsApi.revalidateConnection(id);
+      if (res.status === 'CONNECTED') {
+        setActionMsg({ type: 'success', text: `${name} revalidated successfully and is CONNECTED.` });
+      } else {
+        setActionMsg({
+          type: 'error',
+          text: `${name} validation completed with status: ${res.status}. ${res.errorMessage || ''}`,
+        });
+      }
+      await loadAllConnections();
+    } catch (err: any) {
+      setActionMsg({ type: 'error', text: `Revalidation failed for ${name}: ${err.message}` });
+    } finally {
+      setActionPending(null);
+    }
+  };
+
+  const handleDisconnectCloud = async (id: string, name: string) => {
+    try {
+      setActionPending(id);
+      setActionMsg(null);
+      await cloudConnectionsApi.disconnectConnection(id);
+      setActionMsg({ type: 'success', text: `${name} disconnected successfully.` });
+      await loadAllConnections();
+    } catch (err: any) {
+      setActionMsg({ type: 'error', text: `Failed to disconnect ${name}: ${err.message}` });
+    } finally {
+      setActionPending(null);
+    }
+  };
+
+  const handleDisconnectK8s = async (id: string, name: string) => {
+    try {
+      setActionPending(id);
+      setActionMsg(null);
+      await kubernetesOperationsApi.disconnectKubernetesCluster(id);
+      setActionMsg({ type: 'success', text: `Cluster "${name}" disconnected successfully.` });
+      await loadAllConnections();
+    } catch (err: any) {
+      setActionMsg({ type: 'error', text: `Failed to disconnect cluster ${name}: ${err.message}` });
+    } finally {
+      setActionPending(null);
+    }
+  };
+
+  const getStatusBadgeProps = (status?: string) => {
+    switch (status) {
+      case 'CONNECTED':
+      case 'HEALTHY':
+        return { bg: 'rgba(16, 185, 129, 0.12)', color: 'var(--status-healthy)', label: '● LIVE CONNECTED' };
+      case 'CONNECTING':
+      case 'AUTHORIZING':
+      case 'VALIDATING':
+        return { bg: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6', label: `● ${status}` };
+      case 'AUTH_REQUIRED':
+        return { bg: 'rgba(245, 158, 11, 0.15)', color: 'var(--status-warning)', label: '● AUTH REQUIRED' };
+      case 'INVALID_CONFIGURATION':
+      case 'PERMISSION_REQUIRED':
+      case 'CONNECTION_FAILED':
+        return { bg: 'rgba(239, 68, 68, 0.15)', color: 'var(--status-critical)', label: `● ${(status || '').replace(/_/g, ' ')}` };
+      case 'DISCONNECTED':
+        return { bg: 'rgba(148, 163, 184, 0.15)', color: 'var(--text-muted)', label: '● DISCONNECTED' };
+      default:
+        return { bg: 'rgba(148, 163, 184, 0.15)', color: 'var(--text-muted)', label: '● NOT CONNECTED' };
+    }
+  };
 
   const handleToggleFault = async (key: string, value: boolean | string | null) => {
     setUpdating(true);
@@ -103,6 +182,27 @@ export function SettingsPage() {
       {/* ── TAB: Cloud Connections (Multi-Cloud) ─────────────────────────── */}
       {activeTab === 'cloud_connections' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Action notification message */}
+          {actionMsg && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: actionMsg.type === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                border: `1px solid ${actionMsg.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                color: actionMsg.type === 'success' ? 'var(--status-healthy)' : 'var(--status-critical)',
+                fontSize: '12px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <span>{actionMsg.type === 'success' ? '✅' : '⚠️'}</span>
+              <span>{actionMsg.text}</span>
+            </div>
+          )}
+
           {/* Multi-Cloud Overview Banner */}
           <div
             style={{
@@ -136,236 +236,384 @@ export function SettingsPage() {
           {/* Cloud Provider Connection Cards Grid */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {/* 1. AWS Card */}
-            <div
-              style={{
-                padding: '16px',
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '22px' }}>☁️</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
-                      Amazon Web Services (AWS)
+            {(() => {
+              const badge = getStatusBadgeProps(awsConn?.status);
+              return (
+                <div
+                  style={{
+                    padding: '16px',
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '22px' }}>☁️</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
+                          Amazon Web Services (AWS)
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {awsConn
+                            ? `Account ID: ${awsConn.accountIdentifier || '—'} · Role: ${awsConn.roleArn || '—'}`
+                            : 'No AWS IAM Role connection configured'}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      Account ID: {awsConn?.accountIdentifier || '718293041526'} · Role: {awsConn?.roleArn || 'arn:aws:iam::718293041526:role/CloudPulseReadOnlyRole'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ padding: '3px 8px', borderRadius: '4px', backgroundColor: badge.bg, color: badge.color, fontSize: '10.5px', fontWeight: 700 }}>
+                        {badge.label}
+                      </span>
+                      {awsConn ? (
+                        <>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            disabled={actionPending === awsConn.id}
+                            onClick={() => handleRevalidateCloud(awsConn.id, 'AWS')}
+                          >
+                            {actionPending === awsConn.id ? 'Validating...' : '🔍 Revalidate'}
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ color: 'var(--status-critical)' }}
+                            disabled={actionPending === awsConn.id}
+                            onClick={() => handleDisconnectCloud(awsConn.id, 'AWS')}
+                          >
+                            Disconnect
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => navigate('/settings/cloud-connections/aws')}
+                          >
+                            ⚙️ Reconfigure
+                          </button>
+                          {awsConn.status === 'CONNECTED' && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => navigate('/infrastructure')}
+                            >
+                              Explore AWS →
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => navigate('/settings/cloud-connections/aws')}
+                        >
+                          Connect AWS →
+                        </button>
+                      )}
                     </div>
                   </div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                    Regions: <strong>us-east-1, us-east-2, eu-west-1</strong> · Services: <strong>EC2, S3, RDS, Lambda, EKS, VPC, ELB, CloudWatch, IAM</strong>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ padding: '3px 8px', borderRadius: '4px', backgroundColor: 'rgba(16, 185, 129, 0.12)', color: 'var(--status-healthy)', fontSize: '10.5px', fontWeight: 700 }}>
-                    ● {awsConn?.status === 'CONNECTED' ? 'LIVE CONNECTED' : 'DISCONNECTED'}
-                  </span>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => alert('Validation Succeeded: AWS STS Role Assumption verified with 10/10 permissions.')}
-                  >
-                    🔍 Validate
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => navigate('/infrastructure')}
-                  >
-                    Explore AWS →
-                  </button>
-                </div>
-              </div>
-              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-                Regions: <strong>us-east-1, us-east-2, eu-west-1</strong> · Services: <strong>EC2, S3, RDS, Lambda, EKS, VPC, ELB, CloudWatch, IAM</strong>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* 2. Microsoft Azure Card */}
-            <div
-              style={{
-                padding: '16px',
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '22px' }}>🔷</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
-                      Microsoft Azure
+            {(() => {
+              const badge = getStatusBadgeProps(azureConn?.status);
+              return (
+                <div
+                  style={{
+                    padding: '16px',
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '22px' }}>🔷</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
+                          Microsoft Azure
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {azureConn
+                            ? `Tenant: ${azureConn.tenantId || azureConn.accountIdentifier || '—'} · Subscription: ${azureConn.subscriptionId || '—'}`
+                            : 'Entra ID Application + ARM Reader Role Authorization'}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      {azureConn?.status === 'CONNECTED'
-                        ? `Tenant: ${azureConn.tenantId || '72f988bf-86f1-41af-91ab-2d7cd011db47'} · Subscription: ${azureConn.subscriptionId || azureConn.accountIdentifier}`
-                        : 'Entra ID Application + ARM Reader Role Authorization'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ padding: '3px 8px', borderRadius: '4px', backgroundColor: badge.bg, color: badge.color, fontSize: '10.5px', fontWeight: 700 }}>
+                        {badge.label}
+                      </span>
+                      {azureConn ? (
+                        <>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            disabled={actionPending === azureConn.id}
+                            onClick={() => handleRevalidateCloud(azureConn.id, 'Azure')}
+                          >
+                            {actionPending === azureConn.id ? 'Validating...' : '🔍 Revalidate'}
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ color: 'var(--status-critical)' }}
+                            disabled={actionPending === azureConn.id}
+                            onClick={() => handleDisconnectCloud(azureConn.id, 'Azure')}
+                          >
+                            Disconnect
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => navigate('/settings/cloud-connections/azure')}
+                          >
+                            ⚙️ Reconfigure
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => navigate('/settings/cloud-connections/azure')}
+                        >
+                          Connect Azure →
+                        </button>
+                      )}
                     </div>
                   </div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                    Supported Services: <strong>Virtual Machines, Blob Storage, Azure SQL, Cosmos DB, AKS, Functions, VNets, App Gateway, Key Vault, Service Bus, Monitor</strong>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: '4px',
-                      backgroundColor: azureConn?.status === 'CONNECTED' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(148, 163, 184, 0.15)',
-                      color: azureConn?.status === 'CONNECTED' ? 'var(--status-healthy)' : 'var(--text-muted)',
-                      fontSize: '10.5px',
-                      fontWeight: 700
-                    }}
-                  >
-                    ● {azureConn?.status === 'CONNECTED' ? 'LIVE CONNECTED' : 'READY TO CONNECT'}
-                  </span>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => navigate('/settings/cloud-connections/azure')}
-                  >
-                    {azureConn?.status === 'CONNECTED' ? '⚙️ Reconfigure Azure' : 'Connect Azure →'}
-                  </button>
-                </div>
-              </div>
-              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-                Supported Services: <strong>Virtual Machines, Blob Storage, Azure SQL, Cosmos DB, AKS, Functions, VNets, App Gateway, Key Vault, Service Bus, Monitor</strong>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* 3. Google Cloud Platform Card */}
-            <div
-              style={{
-                padding: '16px',
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '22px' }}>🌐</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
-                      Google Cloud Platform (GCP)
+            {(() => {
+              const badge = getStatusBadgeProps(gcpConn?.status);
+              return (
+                <div
+                  style={{
+                    padding: '16px',
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '22px' }}>🌐</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
+                          Google Cloud Platform (GCP)
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {gcpConn
+                            ? `Project: ${gcpConn.projectId || gcpConn.accountIdentifier || '—'} · Service Account: ${gcpConn.clientEmail || '—'}`
+                            : 'Service Account + Cloud IAM Viewer Role Authorization'}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      {gcpConn?.status === 'CONNECTED'
-                        ? `Project: ${gcpConn.projectId || gcpConn.accountIdentifier} · Service Account: ${gcpConn.clientEmail}`
-                        : 'Service Account + Cloud IAM Viewer Role Authorization'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ padding: '3px 8px', borderRadius: '4px', backgroundColor: badge.bg, color: badge.color, fontSize: '10.5px', fontWeight: 700 }}>
+                        {badge.label}
+                      </span>
+                      {gcpConn ? (
+                        <>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            disabled={actionPending === gcpConn.id}
+                            onClick={() => handleRevalidateCloud(gcpConn.id, 'GCP')}
+                          >
+                            {actionPending === gcpConn.id ? 'Validating...' : '🔍 Revalidate'}
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ color: 'var(--status-critical)' }}
+                            disabled={actionPending === gcpConn.id}
+                            onClick={() => handleDisconnectCloud(gcpConn.id, 'GCP')}
+                          >
+                            Disconnect
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => navigate('/settings/cloud-connections/gcp')}
+                          >
+                            ⚙️ Reconfigure
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => navigate('/settings/cloud-connections/gcp')}
+                        >
+                          Connect GCP →
+                        </button>
+                      )}
                     </div>
                   </div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                    Supported Services: <strong>Compute Engine, Cloud Storage, Cloud SQL, GKE, Cloud Run, VPC, Cloud Load Balancing, Secret Manager, Pub/Sub, BigQuery, Cloud Logging</strong>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: '4px',
-                      backgroundColor: gcpConn?.status === 'CONNECTED' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(148, 163, 184, 0.15)',
-                      color: gcpConn?.status === 'CONNECTED' ? 'var(--status-healthy)' : 'var(--text-muted)',
-                      fontSize: '10.5px',
-                      fontWeight: 700
-                    }}
-                  >
-                    ● {gcpConn?.status === 'CONNECTED' ? 'LIVE CONNECTED' : 'READY TO CONNECT'}
-                  </span>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => navigate('/settings/cloud-connections/gcp')}
-                  >
-                    {gcpConn?.status === 'CONNECTED' ? '⚙️ Reconfigure GCP' : 'Connect GCP →'}
-                  </button>
-                </div>
-              </div>
-              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-                Supported Services: <strong>Compute Engine, Cloud Storage, Cloud SQL, GKE, Cloud Run, VPC, Cloud Load Balancing, Secret Manager, Pub/Sub, BigQuery, Cloud Logging</strong>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* 4. Kubernetes Production Clusters Card */}
-            <div
-              style={{
-                padding: '16px',
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '22px' }}>☸️</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
-                      Kubernetes Production Clusters (EKS · AKS · GKE · Self-Managed)
+            {(() => {
+              const connectedClusters = kubernetesConnections.filter(
+                (c) => c.status === 'CONNECTED' || c.status === 'HEALTHY' || c.status === 'DEGRADED'
+              );
+              const hasConnected = connectedClusters.length > 0;
+              return (
+                <div
+                  style={{
+                    padding: '16px',
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '22px' }}>☸️</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>
+                          Kubernetes Production Clusters (EKS · AKS · GKE · Self-Managed)
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          CoreV1, AppsV1, RbacV1 & Metrics Discovery with Least-Privilege Read-Only Roles
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      CoreV1, AppsV1, RbacV1 & Metrics Discovery with Least-Privilege Read-Only Roles
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          backgroundColor: hasConnected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(148, 163, 184, 0.15)',
+                          color: hasConnected ? 'var(--status-healthy)' : 'var(--text-muted)',
+                          fontSize: '10.5px',
+                          fontWeight: 700
+                        }}
+                      >
+                        ● {hasConnected ? `${connectedClusters.length} CLUSTER${connectedClusters.length > 1 ? 'S' : ''} CONNECTED` : 'NO CLUSTERS CONNECTED'}
+                      </span>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => navigate('/settings/cloud-connections/kubernetes')}
+                      >
+                        Connect Cluster →
+                      </button>
                     </div>
                   </div>
+
+                  {kubernetesConnections.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                      {kubernetesConnections.map((cluster) => {
+                        const kBadge = getStatusBadgeProps(cluster.status);
+                        return (
+                          <div
+                            key={cluster.id}
+                            style={{
+                              padding: '10px 12px',
+                              backgroundColor: 'var(--bg-surface)',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--border-subtle)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              gap: '8px',
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '12.5px', color: 'var(--text-primary)' }}>
+                                {cluster.name || cluster.clusterName || cluster.id} ({cluster.provider || 'Kubernetes'})
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                {cluster.endpoint || 'Internal API'} · v{cluster.version || '1.30'}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: kBadge.bg, color: kBadge.color, fontSize: '10px', fontWeight: 700 }}>
+                                {kBadge.label}
+                              </span>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '11px', padding: '2px 8px', color: 'var(--status-critical)' }}
+                                disabled={actionPending === cluster.id}
+                                onClick={() => handleDisconnectK8s(cluster.id, cluster.name || cluster.clusterName || cluster.id)}
+                              >
+                                {actionPending === cluster.id ? 'Disconnecting...' : 'Disconnect'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                    Supported Resources: <strong>Nodes, Namespaces, Deployments, StatefulSets, DaemonSets, Pods, Services, Ingresses, PersistentVolumes, HPAs, RBAC Roles</strong>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: '4px',
-                      backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                      color: 'var(--status-healthy)',
-                      fontSize: '10.5px',
-                      fontWeight: 700
-                    }}
-                  >
-                    ● 1 CLUSTER CONNECTED
-                  </span>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => navigate('/settings/cloud-connections/kubernetes')}
-                  >
-                    Connect Cluster →
-                  </button>
-                </div>
-              </div>
-              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-                Supported Resources: <strong>Nodes, Namespaces, Deployments, StatefulSets, DaemonSets, Pods, Services, Ingresses, PersistentVolumes, HPAs, RBAC Roles</strong>
-              </div>
-            </div>
+              );
+            })()}
           </div>
 
           {/* AWS Permission Diagnostics Matrix */}
           <Card
             title="AWS Permission Diagnostics & Least-Privilege Verification"
             subtitle="Verified against Amazon Web Services IAM policy evaluator"
-            badge={<span style={{ fontSize: '10px', color: 'var(--status-healthy)', fontWeight: 700 }}>10/10 PASSING</span>}
+            badge={
+              awsConn?.status === 'CONNECTED' ? (
+                <span style={{ fontSize: '10px', color: 'var(--status-healthy)', fontWeight: 700 }}>10/10 PASSING</span>
+              ) : (
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>
+                  {awsConn ? `STATUS: ${awsConn.status}` : 'AWAITING CONNECTION'}
+                </span>
+              )
+            }
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '8px' }}>
               {[
-                { perm: 'sts:GetCallerIdentity', desc: 'Account Identity Check', status: 'GRANTED' },
-                { perm: 'ec2:DescribeRegions', desc: 'Region Discovery', status: 'GRANTED' },
-                { perm: 'ec2:DescribeInstances', desc: 'EC2 Workload Inventory', status: 'GRANTED' },
-                { perm: 'ec2:DescribeVpcs', desc: 'VPC Network Mapping', status: 'GRANTED' },
-                { perm: 's3:ListAllMyBuckets', desc: 'S3 Bucket Security Posture', status: 'GRANTED' },
-                { perm: 'rds:DescribeDBInstances', desc: 'Aurora / RDS Topology', status: 'GRANTED' },
-                { perm: 'lambda:ListFunctions', desc: 'Serverless Functions', status: 'GRANTED' },
-                { perm: 'cloudwatch:GetMetricData', desc: 'Real-time Golden Metrics', status: 'GRANTED' },
-                { perm: 'iam:GetAccountSummary', desc: 'Zero-Trust IAM Hygiene', status: 'GRANTED' },
-                { perm: 'ce:GetCostAndUsage', desc: 'Cost Explorer Billing Data', status: 'GRANTED' },
-              ].map((p) => (
-                <div key={p.perm} style={{ padding: '8px 10px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>{p.perm}</div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{p.desc}</div>
+                { perm: 'sts:GetCallerIdentity', desc: 'Account Identity Check' },
+                { perm: 'ec2:DescribeRegions', desc: 'Region Discovery' },
+                { perm: 'ec2:DescribeInstances', desc: 'EC2 Workload Inventory' },
+                { perm: 'ec2:DescribeVpcs', desc: 'VPC Network Mapping' },
+                { perm: 's3:ListAllMyBuckets', desc: 'S3 Bucket Security Posture' },
+                { perm: 'rds:DescribeDBInstances', desc: 'Aurora / RDS Topology' },
+                { perm: 'lambda:ListFunctions', desc: 'Serverless Functions' },
+                { perm: 'cloudwatch:GetMetricData', desc: 'Real-time Golden Metrics' },
+                { perm: 'iam:GetAccountSummary', desc: 'Zero-Trust IAM Hygiene' },
+                { perm: 'ce:GetCostAndUsage', desc: 'Cost Explorer Billing Data' },
+              ].map((p) => {
+                const isConnected = awsConn?.status === 'CONNECTED';
+                const permStatus = isConnected ? 'GRANTED' : (awsConn ? 'PENDING' : 'NOT VERIFIED');
+                const permColor = isConnected ? 'var(--status-healthy)' : 'var(--text-muted)';
+                const permBg = isConnected ? 'var(--status-healthy-bg)' : 'rgba(148, 163, 184, 0.12)';
+                return (
+                  <div key={p.perm} style={{ padding: '8px 10px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>{p.perm}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{p.desc}</div>
+                    </div>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: permColor, backgroundColor: permBg, padding: '1px 5px', borderRadius: '3px' }}>
+                      {permStatus}
+                    </span>
                   </div>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--status-healthy)', backgroundColor: 'var(--status-healthy-bg)', padding: '1px 5px', borderRadius: '3px' }}>
-                    {p.status}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         </div>

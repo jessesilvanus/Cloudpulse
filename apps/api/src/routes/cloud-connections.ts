@@ -42,17 +42,35 @@ const knowledgeGraphEngine = AwsKnowledgeGraphEngine.getInstance();
 const queryEngine = AwsCloudQueryEngine.getInstance();
 const operationsEngine = AwsCloudOperationsEngine.getInstance();
 
-// Helper to extract workspace and user from request or default
+// Helper to extract workspace and user from request without leaking ws-production
 function getContext(req: Request) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : null;
   const user = token ? authEngine.verifySession(token) : null;
 
+  const reqWs = req.headers['x-workspace-id'] as string | undefined;
+  const reqOrg = req.headers['x-organization-id'] as string | undefined;
+  const reqUser = req.headers['x-user-id'] as string | undefined;
+
+  let workspaceId = reqWs || user?.workspaceId;
+  let organizationId = reqOrg || user?.organizationId;
+  let userId = reqUser || user?.id;
+
+  if (user) {
+    workspaceId = workspaceId || user.workspaceId || `ws-${user.id}`;
+    organizationId = organizationId || user.organizationId || 'org-default';
+    userId = user.id;
+  } else {
+    workspaceId = workspaceId || 'ws-anonymous';
+    organizationId = organizationId || 'org-anonymous';
+    userId = userId || 'usr-anonymous';
+  }
+
   return {
-    user: user || { id: 'usr-jesse-silvanus', email: 'jesse.silvanus@cloudpulse.internal', name: 'Jesse Silvanus', role: 'admin' },
-    userId: user?.id || 'usr-jesse-silvanus',
-    organizationId: user?.organizationId || 'org-cloudpulse-corp',
-    workspaceId: (req.headers['x-workspace-id'] as string) || user?.workspaceId || 'ws-production'
+    user,
+    userId,
+    organizationId,
+    workspaceId
   };
 }
 
@@ -79,13 +97,21 @@ cloudConnectionsRouter.post('/aws/connect', async (req: Request, res: Response) 
     });
   }
 
+  const roleArnRegex = /^arn:aws:iam::\d{12}:role\/[\w+=,.@-]{1,64}$/;
+  if (!roleArnRegex.test(roleArn)) {
+    return res.status(400).json({
+      ok: false,
+      error: { message: `Invalid Role ARN: '${roleArn}'. Must match 'arn:aws:iam::<12-digit-account-id>:role/<role-name>'.` }
+    });
+  }
+
   try {
     const conn = await connectionEngine.connectAws(workspaceId, organizationId, userId, {
       displayName,
       roleArn,
       externalId
     });
-    if (user?.id) authEngine.completeOnboarding(user.id);
+    if (user?.id && conn.status === 'CONNECTED') authEngine.completeOnboarding(user.id);
     return res.status(201).json({ ok: true, data: conn });
   } catch (err: any) {
     return res.status(400).json({ ok: false, error: { message: err.message } });
@@ -114,6 +140,14 @@ cloudConnectionsRouter.post('/azure/connect', async (req: Request, res: Response
     });
   }
 
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(tenantId) || !uuidRegex.test(subscriptionId)) {
+    return res.status(400).json({
+      ok: false,
+      error: { message: 'tenantId and subscriptionId must be valid GUID/UUID formats.' }
+    });
+  }
+
   try {
     const conn = await connectionEngine.connectAzure(workspaceId, organizationId, userId, {
       displayName,
@@ -121,7 +155,7 @@ cloudConnectionsRouter.post('/azure/connect', async (req: Request, res: Response
       subscriptionId,
       clientId
     });
-    if (user?.id) authEngine.completeOnboarding(user.id);
+    if (user?.id && conn.status === 'CONNECTED') authEngine.completeOnboarding(user.id);
     return res.status(201).json({ ok: true, data: conn });
   } catch (err: any) {
     return res.status(400).json({ ok: false, error: { message: err.message } });
@@ -150,6 +184,14 @@ cloudConnectionsRouter.post('/gcp/connect', async (req: Request, res: Response) 
     });
   }
 
+  const projectIdRegex = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
+  if (!projectIdRegex.test(projectId)) {
+    return res.status(400).json({
+      ok: false,
+      error: { message: `Invalid GCP Project ID: '${projectId}'. Must be 6-30 lowercase characters, digits, and hyphens.` }
+    });
+  }
+
   try {
     const conn = await connectionEngine.connectGcp(workspaceId, organizationId, userId, {
       displayName,
@@ -157,7 +199,7 @@ cloudConnectionsRouter.post('/gcp/connect', async (req: Request, res: Response) 
       clientEmail,
       projectNumber
     });
-    if (user?.id) authEngine.completeOnboarding(user.id);
+    if (user?.id && conn.status === 'CONNECTED') authEngine.completeOnboarding(user.id);
     return res.status(201).json({ ok: true, data: conn });
   } catch (err: any) {
     return res.status(400).json({ ok: false, error: { message: err.message } });
@@ -220,7 +262,46 @@ cloudConnectionsRouter.post('/:id/disconnect', (req: Request, res: Response) => 
   if (!success) {
     return res.status(404).json({ ok: false, error: { message: `Connection '${id}' not found.` } });
   }
-  return res.json({ ok: true, data: { message: 'Cloud connection successfully disconnected.' } });
+  const conn = connectionEngine.getConnection(id, workspaceId);
+  return res.json({
+    ok: true,
+    data: {
+      id,
+      status: conn?.status || 'DISCONNECTED',
+      dataSource: conn?.dataSource || 'NOT_CONNECTED',
+      message: 'Cloud connection successfully disconnected.'
+    }
+  });
+});
+
+cloudConnectionsRouter.delete('/:id', (req: Request, res: Response) => {
+  const { workspaceId } = getContext(req);
+  const id = req.params.id || '';
+  const success = connectionEngine.disconnectConnection(id, workspaceId);
+  if (!success) {
+    return res.status(404).json({ ok: false, error: { message: `Connection '${id}' not found.` } });
+  }
+  const conn = connectionEngine.getConnection(id, workspaceId);
+  return res.json({
+    ok: true,
+    data: {
+      id,
+      status: conn?.status || 'DISCONNECTED',
+      dataSource: conn?.dataSource || 'NOT_CONNECTED',
+      message: 'Cloud connection successfully disconnected.'
+    }
+  });
+});
+
+cloudConnectionsRouter.post('/:id/revalidate', async (req: Request, res: Response) => {
+  const { workspaceId } = getContext(req);
+  const id = req.params.id || '';
+  try {
+    const result = await connectionEngine.revalidateConnection(id, workspaceId);
+    return res.json({ ok: true, data: result });
+  } catch (err: any) {
+    return res.status(404).json({ ok: false, error: { message: err.message } });
+  }
 });
 
 cloudConnectionsRouter.get('/aws/live-data', async (req: Request, res: Response) => {
@@ -340,7 +421,7 @@ cloudConnectionsRouter.get('/aws/security/findings/:id', (req: Request, res: Res
 cloudConnectionsRouter.patch('/aws/security/findings/:id/status', (req: Request, res: Response) => {
   const { workspaceId, user } = getContext(req);
   const { status, reason } = req.body;
-  const updated = securityEngine.updateFindingStatus(req.params.id || '', status, reason, user.email, workspaceId);
+  const updated = securityEngine.updateFindingStatus(req.params.id || '', status, reason, user?.email || 'security-operator@cloudpulse.internal', workspaceId);
   if (!updated) {
     return res.status(404).json({ ok: false, error: { message: `Security finding '${req.params.id}' not found.` } });
   }
@@ -362,7 +443,7 @@ cloudConnectionsRouter.get('/aws/security/capabilities', (req: Request, res: Res
 cloudConnectionsRouter.post('/aws/security/findings/:id/exception', (req: Request, res: Response) => {
   const { workspaceId, user } = getContext(req);
   const { reason, expiry } = req.body;
-  const success = securityEngine.createSecurityException(req.params.id || '', reason || 'Business exception', user.email, expiry || '30d', workspaceId);
+  const success = securityEngine.createSecurityException(req.params.id || '', reason || 'Business exception', user?.email || 'security-operator@cloudpulse.internal', expiry || '30d', workspaceId);
   if (!success) {
     return res.status(404).json({ ok: false, error: { message: `Security finding '${req.params.id}' not found.` } });
   }
@@ -1218,9 +1299,9 @@ cloudConnectionsRouter.post('/aws/investigations', (req: Request, res: Response)
     description: description || 'Investigating anomalies across AWS infrastructure.',
     severity: severity || 'HIGH',
     scope: scope || 'AWS Production Estate',
-    rootCauseHypothesis,
-    evidenceNodeIds,
-    createdBy: user?.email
+    ...(rootCauseHypothesis ? { rootCauseHypothesis } : {}),
+    ...(evidenceNodeIds ? { evidenceNodeIds } : {}),
+    createdBy: user?.email || 'operator@cloudpulse.internal'
   });
   return res.json({ ok: true, data: inv });
 });

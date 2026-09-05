@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.tsx';
-import { cloudConnectionsApi } from '../api/client.ts';
+import { cloudConnectionsApi, kubernetesOperationsApi } from '../api/client.ts';
 import { Card } from '../components/ui/StatCard.tsx';
 import { StatusBadge } from '../components/ui/StatusBadge.tsx';
 import { CheckCircleIcon, ShieldIcon, SparklesIcon, AlertTriangleIcon } from '../components/ui/Icons.tsx';
@@ -11,23 +11,38 @@ export function OnboardingPage() {
   const { user, workspace, completeOnboarding } = useAuth();
   const navigate = useNavigate();
   const [connections, setConnections] = useState<CloudConnection[]>([]);
+  const [k8sClusters, setK8sClusters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(false);
 
-  useEffect(() => {
-    async function loadConnections() {
-      try {
-        setLoading(true);
-        const conns = await cloudConnectionsApi.getCloudConnections();
-        setConnections(conns || []);
-      } catch (err) {
-        console.error('Failed to load active cloud connections:', err);
-      } finally {
-        setLoading(false);
-      }
+  const loadConnections = async () => {
+    try {
+      setLoading(true);
+      const [conns, clusters] = await Promise.all([
+        cloudConnectionsApi.getCloudConnections().catch(() => []),
+        kubernetesOperationsApi.getKubernetesConnections().catch(() => [])
+      ]);
+      setConnections(conns || []);
+      setK8sClusters(clusters || []);
+    } catch (err) {
+      console.error('Failed to load active cloud connections:', err);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadConnections();
   }, []);
+
+  const handleDisconnect = async (connId: string) => {
+    try {
+      await cloudConnectionsApi.disconnectConnection(connId);
+      await loadConnections();
+    } catch (err) {
+      console.error('Disconnect failed:', err);
+    }
+  };
 
   const handleProceed = async () => {
     try {
@@ -44,10 +59,10 @@ export function OnboardingPage() {
   const awsConn = connections.find((c) => c.provider === 'AWS');
   const azureConn = connections.find((c) => c.provider === 'AZURE');
   const gcpConn = connections.find((c) => c.provider === 'GCP');
-  const k8sConn = connections.find((c) => c.provider === 'KUBERNETES');
+  const k8sConn = k8sClusters.find((c: any) => c.status === 'CONNECTED') || k8sClusters[0];
 
-  const hasAnyConnection = connections.some((c) => c.status === 'CONNECTED');
-  const connectedCount = connections.filter((c) => c.status === 'CONNECTED').length;
+  const hasAnyConnection = connections.some((c) => c.status === 'CONNECTED') || k8sClusters.some((k: any) => k.status === 'CONNECTED');
+  const connectedCount = connections.filter((c) => c.status === 'CONNECTED').length + k8sClusters.filter((k: any) => k.status === 'CONNECTED').length;
 
   return (
     <div
@@ -273,14 +288,26 @@ export function OnboardingPage() {
               )}
             </div>
 
-            <button
-              type="button"
-              className={awsConn?.status === 'CONNECTED' ? 'btn btn-secondary' : 'btn btn-primary'}
-              onClick={() => navigate('/settings/cloud-connections/aws')}
-              style={{ width: '100%', fontWeight: 700, justifyContent: 'center' }}
-            >
-              {awsConn?.status === 'CONNECTED' ? '⚙️ Reconfigure AWS Connection' : 'Connect AWS →'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className={awsConn?.status === 'CONNECTED' ? 'btn btn-secondary' : 'btn btn-primary'}
+                onClick={() => navigate('/settings/cloud-connections/aws?from=onboarding')}
+                style={{ flex: 1, fontWeight: 700, justifyContent: 'center' }}
+              >
+                {awsConn?.status === 'CONNECTED' ? '⚙️ Reconfigure AWS' : 'Connect AWS →'}
+              </button>
+              {awsConn?.status === 'CONNECTED' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleDisconnect(awsConn.id)}
+                  style={{ color: 'var(--status-critical)' }}
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 2. Azure Card */}
@@ -334,14 +361,26 @@ export function OnboardingPage() {
               )}
             </div>
 
-            <button
-              type="button"
-              className={azureConn?.status === 'CONNECTED' ? 'btn btn-secondary' : 'btn btn-primary'}
-              onClick={() => navigate('/settings/cloud-connections/azure')}
-              style={{ width: '100%', fontWeight: 700, justifyContent: 'center' }}
-            >
-              {azureConn?.status === 'CONNECTED' ? '⚙️ Reconfigure Azure Connection' : 'Connect Azure →'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className={azureConn?.status === 'CONNECTED' ? 'btn btn-secondary' : 'btn btn-primary'}
+                onClick={() => navigate('/settings/cloud-connections/azure?from=onboarding')}
+                style={{ flex: 1, fontWeight: 700, justifyContent: 'center' }}
+              >
+                {azureConn?.status === 'CONNECTED' ? '⚙️ Reconfigure Azure' : 'Connect Azure →'}
+              </button>
+              {azureConn?.status === 'CONNECTED' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleDisconnect(azureConn.id)}
+                  style={{ color: 'var(--status-critical)' }}
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 3. Google Cloud Card */}
@@ -395,14 +434,26 @@ export function OnboardingPage() {
               )}
             </div>
 
-            <button
-              type="button"
-              className={gcpConn?.status === 'CONNECTED' ? 'btn btn-secondary' : 'btn btn-primary'}
-              onClick={() => navigate('/settings/cloud-connections/gcp')}
-              style={{ width: '100%', fontWeight: 700, justifyContent: 'center' }}
-            >
-              {gcpConn?.status === 'CONNECTED' ? '⚙️ Reconfigure GCP Connection' : 'Connect Google Cloud →'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className={gcpConn?.status === 'CONNECTED' ? 'btn btn-secondary' : 'btn btn-primary'}
+                onClick={() => navigate('/settings/cloud-connections/gcp?from=onboarding')}
+                style={{ flex: 1, fontWeight: 700, justifyContent: 'center' }}
+              >
+                {gcpConn?.status === 'CONNECTED' ? '⚙️ Reconfigure GCP' : 'Connect Google Cloud →'}
+              </button>
+              {gcpConn?.status === 'CONNECTED' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleDisconnect(gcpConn.id)}
+                  style={{ color: 'var(--status-critical)' }}
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 4. Kubernetes Card */}
@@ -451,7 +502,7 @@ export function OnboardingPage() {
 
               {k8sConn?.status === 'CONNECTED' && (
                 <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-elevated)', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                  Cluster: <strong style={{ color: 'var(--text-primary)' }}>{k8sConn.displayName}</strong>
+                  Cluster: <strong style={{ color: 'var(--text-primary)' }}>{k8sConn.name || k8sConn.displayName}</strong>
                 </div>
               )}
             </div>
@@ -459,7 +510,7 @@ export function OnboardingPage() {
             <button
               type="button"
               className={k8sConn?.status === 'CONNECTED' ? 'btn btn-secondary' : 'btn btn-primary'}
-              onClick={() => navigate('/settings/cloud-connections/kubernetes')}
+              onClick={() => navigate('/settings/cloud-connections/kubernetes?from=onboarding')}
               style={{ width: '100%', fontWeight: 700, justifyContent: 'center' }}
             >
               {k8sConn?.status === 'CONNECTED' ? '⚙️ Reconfigure Kubernetes' : 'Connect Kubernetes →'}

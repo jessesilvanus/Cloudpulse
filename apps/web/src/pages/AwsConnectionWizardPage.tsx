@@ -15,10 +15,12 @@ export function AwsConnectionWizardPage() {
   const [existingConnection, setExistingConnection] = useState<CloudConnection | null>(null);
 
   // Form Fields
-  const [displayName, setDisplayName] = useState('Production AWS Account (US-East-1)');
-  const [roleArn, setRoleArn] = useState('arn:aws:iam::718293041526:role/CloudPulseReadOnlyRole');
+  const [displayName, setDisplayName] = useState('');
+  const [roleArn, setRoleArn] = useState('');
   const [externalId, setExternalId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState(false);
   const [copiedTrust, setCopiedTrust] = useState(false);
   const [copiedPerms, setCopiedPerms] = useState(false);
 
@@ -26,6 +28,9 @@ export function AwsConnectionWizardPage() {
   const [validationStage, setValidationStage] = useState<number>(0);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationComplete, setValidationComplete] = useState<boolean>(false);
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const isFromOnboarding = searchParams.get('from') === 'onboarding';
 
   useEffect(() => {
     async function loadInfo() {
@@ -40,7 +45,7 @@ export function AwsConnectionWizardPage() {
           setExternalId(info.externalId);
         }
 
-        const aws = conns.find((c: CloudConnection) => c.provider === 'AWS' && c.status === 'CONNECTED');
+        const aws = conns?.find((c: CloudConnection) => c.provider === 'AWS');
         if (aws) {
           setExistingConnection(aws);
           if (aws.displayName) setDisplayName(aws.displayName);
@@ -67,6 +72,36 @@ export function AwsConnectionWizardPage() {
     }
   };
 
+  const handleDisconnect = async () => {
+    if (!existingConnection) return;
+    try {
+      setIsDisconnecting(true);
+      await cloudConnectionsApi.disconnectConnection(existingConnection.id);
+      setExistingConnection((prev) => prev ? { ...prev, status: 'NOT_CONNECTED', dataSource: 'NOT_CONNECTED' } : null);
+      setValidationComplete(false);
+    } catch (err: any) {
+      setValidationError(err.message || 'Failed to disconnect AWS account.');
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  const handleRevalidate = async () => {
+    if (!existingConnection) return;
+    try {
+      setIsRevalidating(true);
+      setValidationError(null);
+      const res = await cloudConnectionsApi.revalidateConnection(existingConnection.id);
+      if (res?.status) {
+        setExistingConnection((prev) => prev ? { ...prev, status: res.status, dataSource: res.dataSource } : null);
+      }
+    } catch (err: any) {
+      setValidationError(err.message || 'Revalidation failed.');
+    } finally {
+      setIsRevalidating(false);
+    }
+  };
+
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -75,22 +110,32 @@ export function AwsConnectionWizardPage() {
 
     try {
       // Step 1: Authorization
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 300));
       setValidationStage(2);
 
       // Step 2: Identity & Connect
-      const conn = await cloudConnectionsApi.connectAws({
-        displayName,
+      const payload: { displayName?: string; roleArn: string; externalId: string } = {
         roleArn,
         externalId,
-      });
+      };
+      if (displayName.trim()) {
+        payload.displayName = displayName.trim();
+      }
+      const conn = await cloudConnectionsApi.connectAws(payload);
+
+      if (conn.status !== 'CONNECTED') {
+        setExistingConnection(conn);
+        setValidationError(conn.metadata?.errorDetails || `AWS Role validation returned status '${conn.status}'. Please ensure the IAM role is created with the trust policy and external ID.`);
+        setValidationStage(0);
+        return;
+      }
 
       // Step 3: Permissions
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 300));
       setValidationStage(3);
 
       // Step 4: Scope
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 300));
       setValidationStage(4);
 
       // Step 5: Initial Sync
@@ -100,6 +145,7 @@ export function AwsConnectionWizardPage() {
       setExistingConnection(conn);
     } catch (err: any) {
       setValidationError(err.message || 'AWS IAM Role verification failed. Please verify the Trust Policy and Role ARN.');
+      setValidationStage(0);
     } finally {
       setIsSubmitting(false);
     }
@@ -113,6 +159,8 @@ export function AwsConnectionWizardPage() {
     );
   }
 
+  const isConnected = existingConnection?.status === 'CONNECTED';
+
   return (
     <div className="page-container" style={{ maxWidth: '960px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <PageHeader
@@ -121,9 +169,9 @@ export function AwsConnectionWizardPage() {
         actions={
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => navigate('/settings')}
+            onClick={() => navigate(isFromOnboarding ? '/onboarding' : '/settings')}
           >
-            ← Back to Settings
+            {isFromOnboarding ? '← Back to Onboarding' : '← Back to Settings'}
           </button>
         }
       />
@@ -133,25 +181,56 @@ export function AwsConnectionWizardPage() {
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ color: 'var(--status-healthy)', fontSize: '20px' }}>
-                <CheckCircleIcon />
+              <div style={{ color: isConnected ? 'var(--status-healthy)' : 'var(--text-muted)', fontSize: '20px' }}>
+                {isConnected ? <CheckCircleIcon /> : <AlertTriangleIcon />}
               </div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>
-                  Active AWS Connection: {existingConnection.displayName}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>
+                    AWS Connection: {existingConnection.displayName || 'AWS Account'}
+                  </div>
+                  <span
+                    style={{
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      backgroundColor: isConnected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.12)',
+                      color: isConnected ? 'var(--status-healthy)' : 'var(--text-muted)',
+                    }}
+                  >
+                    ● {existingConnection.status}
+                  </span>
                 </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  Account: {existingConnection.accountIdentifier} · Role: {existingConnection.roleArn}
+                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                  Account: {existingConnection.accountIdentifier} · Role: {existingConnection.roleArn || 'Not set'}
                 </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                className="btn btn-primary btn-sm"
-                onClick={() => navigate('/infrastructure')}
+                className="btn btn-secondary btn-sm"
+                onClick={handleRevalidate}
+                disabled={isRevalidating}
               >
-                Explore AWS Inventory →
+                {isRevalidating ? 'Validating...' : '🔄 Revalidate'}
               </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                style={{ color: 'var(--status-critical)' }}
+              >
+                {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+              </button>
+              {isConnected && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => navigate('/infrastructure')}
+                >
+                  Explore AWS Inventory →
+                </button>
+              )}
             </div>
           </div>
         </Card>

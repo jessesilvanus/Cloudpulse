@@ -4324,7 +4324,7 @@ export interface CloudConnection {
   displayName: string;
   accountIdentifier: string;
   accountOrProjectIdentifier?: string | undefined;
-  status: 'CONNECTED' | 'DISCONNECTED' | 'AUTHORIZATION_REQUIRED' | 'PERMISSION_ERROR' | 'DEGRADED' | 'ERROR';
+  status: CloudConnectionStatus;
   authorizationType: 'ASSUME_ROLE_CROSS_ACCOUNT' | 'IAM_IDENTITY_CENTER' | 'OIDC_FEDERATED' | 'AZURE_ENTRA_APP' | 'AZURE_MANAGED_IDENTITY' | 'AZURE_WORKLOAD_IDENTITY' | 'GCP_SERVICE_ACCOUNT' | 'GCP_WORKLOAD_IDENTITY_FEDERATION' | 'OIDC_CROSS_CLOUD' | string;
   roleArn?: string | undefined;
   externalId?: string | undefined;
@@ -6563,10 +6563,21 @@ export interface AiOperationsCopilotResponse {
 export type CloudProvider = 'AWS' | 'AZURE' | 'GCP';
 
 export type CloudConnectionStatus =
-  | 'CONNECTED'
-  | 'DISCONNECTED'
+  | 'NOT_CONNECTED'
+  | 'CONNECTING'
+  | 'AUTH_REQUIRED'
   | 'AUTHORIZATION_REQUIRED'
+  | 'AUTHORIZING'
+  | 'VALIDATING'
+  | 'CONNECTED'
+  | 'PERMISSION_REQUIRED'
   | 'PERMISSION_ERROR'
+  | 'INVALID_CONFIGURATION'
+  | 'CONNECTION_FAILED'
+  | 'UNAVAILABLE'
+  | 'STALE'
+  | 'UNKNOWN'
+  | 'DISCONNECTED'
   | 'DEGRADED'
   | 'ERROR';
 
@@ -6900,12 +6911,20 @@ export type KubernetesProvider = 'EKS' | 'AKS' | 'GKE' | 'SELF_MANAGED';
 export type KubernetesConnectionStatus =
   | 'NOT_CONNECTED'
   | 'CONNECTING'
+  | 'AUTH_REQUIRED'
+  | 'AUTHORIZING'
+  | 'VALIDATING'
   | 'CONNECTED'
+  | 'PERMISSION_REQUIRED'
+  | 'INVALID_CONFIGURATION'
+  | 'CONNECTION_FAILED'
+  | 'UNAVAILABLE'
   | 'PARTIAL'
   | 'STALE'
   | 'ERROR'
   | 'REAUTH_REQUIRED'
-  | 'DISABLED';
+  | 'DISABLED'
+  | 'UNKNOWN';
 
 export type KubernetesCapabilityType =
   | 'CLUSTER_METADATA'

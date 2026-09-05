@@ -15,12 +15,17 @@ export function GcpConnectionWizardPage() {
   const [existingConnection, setExistingConnection] = useState<CloudConnection | null>(null);
 
   // Form fields
-  const [displayName, setDisplayName] = useState('cloudpulse-production-gcp-01');
-  const [projectId, setProjectId] = useState('cloudpulse-production-gcp-01');
-  const [clientEmail, setClientEmail] = useState('cloudpulse-connector@cloudpulse-production-gcp-01.iam.gserviceaccount.com');
-  const [projectNumber, setProjectNumber] = useState('819238471920');
+  const [displayName, setDisplayName] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [projectNumber, setProjectNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState(false);
   const [connectResult, setConnectResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const isFromOnboarding = searchParams.get('from') === 'onboarding';
 
   useEffect(() => {
     async function loadGuide() {
@@ -30,7 +35,7 @@ export function GcpConnectionWizardPage() {
         setSteps(res.steps || []);
 
         const conns = await cloudConnectionsApi.getCloudConnections();
-        const gcp = conns.find((c: CloudConnection) => c.provider === 'GCP' && c.status === 'CONNECTED');
+        const gcp = conns?.find((c: CloudConnection) => c.provider === 'GCP');
         if (gcp) {
           setExistingConnection(gcp);
           if (gcp.displayName) setDisplayName(gcp.displayName);
@@ -46,18 +51,57 @@ export function GcpConnectionWizardPage() {
     loadGuide();
   }, []);
 
+  const handleDisconnect = async () => {
+    if (!existingConnection) return;
+    try {
+      setIsDisconnecting(true);
+      await cloudConnectionsApi.disconnectConnection(existingConnection.id);
+      setExistingConnection((prev) => prev ? { ...prev, status: 'NOT_CONNECTED', dataSource: 'NOT_CONNECTED' } : null);
+      setConnectResult({ success: true, message: 'Google Cloud project disconnected.' });
+    } catch (err: any) {
+      setConnectResult({ success: false, message: err.message || 'Failed to disconnect GCP project.' });
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  const handleRevalidate = async () => {
+    if (!existingConnection) return;
+    try {
+      setIsRevalidating(true);
+      setConnectResult(null);
+      const res = await cloudConnectionsApi.revalidateConnection(existingConnection.id);
+      if (res?.status) {
+        setExistingConnection((prev) => prev ? { ...prev, status: res.status, dataSource: res.dataSource } : null);
+        setConnectResult({
+          success: res.status === 'CONNECTED',
+          message: res.status === 'CONNECTED' ? 'GCP connection verified successfully.' : `GCP validation status: ${res.status}`
+        });
+      }
+    } catch (err: any) {
+      setConnectResult({ success: false, message: err.message || 'Revalidation failed.' });
+    } finally {
+      setIsRevalidating(false);
+    }
+  };
+
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setConnectResult(null);
 
     try {
-      const conn = await cloudConnectionsApi.connectGcp({
-        displayName,
-        projectId,
-        clientEmail,
-        projectNumber
-      });
+      const payload: { displayName: string; projectId: string; clientEmail?: string; projectNumber?: string } = {
+        displayName: displayName.trim() || 'GCP Project',
+        projectId: projectId.trim(),
+      };
+      if (clientEmail.trim()) {
+        payload.clientEmail = clientEmail.trim();
+      }
+      if (projectNumber.trim()) {
+        payload.projectNumber = projectNumber.trim();
+      }
+      const conn = await cloudConnectionsApi.connectGcp(payload);
 
       if (conn.status === 'CONNECTED') {
         setConnectResult({
@@ -66,9 +110,10 @@ export function GcpConnectionWizardPage() {
         });
         setExistingConnection(conn);
       } else {
+        setExistingConnection(conn);
         setConnectResult({
           success: false,
-          message: `GCP connection returned status ${conn.status}. Please ensure Viewer role is granted to Service Account in IAM.`
+          message: `GCP connection returned status ${conn.status}. ${conn.metadata?.errorDetails?.message || 'Please ensure Viewer role is granted to Service Account in IAM.'}`
         });
       }
     } catch (err: any) {
@@ -85,6 +130,8 @@ export function GcpConnectionWizardPage() {
     return <LoadingState message="Loading Google Cloud Platform connection setup guide..." />;
   }
 
+  const isConnected = existingConnection?.status === 'CONNECTED';
+
   return (
     <div className="page-container">
       <PageHeader
@@ -93,9 +140,9 @@ export function GcpConnectionWizardPage() {
         actions={
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => navigate('/settings')}
+            onClick={() => navigate(isFromOnboarding ? '/onboarding' : '/settings')}
           >
-            ← Back to Settings
+            {isFromOnboarding ? '← Back to Onboarding' : '← Back to Settings'}
           </button>
         }
       />
@@ -104,12 +151,13 @@ export function GcpConnectionWizardPage() {
         <div
           style={{
             padding: '14px 18px',
-            backgroundColor: 'rgba(16, 185, 129, 0.08)',
-            border: '1px solid rgba(16, 185, 129, 0.25)',
+            backgroundColor: isConnected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+            border: `1px solid ${isConnected ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
             borderRadius: 'var(--radius-md)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexWrap: 'wrap',
             gap: '12px',
             marginBottom: '16px'
           }}
@@ -117,21 +165,52 @@ export function GcpConnectionWizardPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '20px' }}>🌐</span>
             <div>
-              <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>
-                Google Cloud Project Currently Connected: {existingConnection.displayName}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>
+                  Google Cloud Project: {existingConnection.displayName}
+                </div>
+                <span
+                  style={{
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: isConnected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.12)',
+                    color: isConnected ? 'var(--status-healthy)' : 'var(--text-muted)',
+                  }}
+                >
+                  ● {existingConnection.status}
+                </span>
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                Project ID: {existingConnection.projectId || existingConnection.accountIdentifier} · Service Account: {existingConnection.clientEmail}
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                Project ID: {existingConnection.projectId || existingConnection.accountIdentifier} · Service Account: {existingConnection.clientEmail || 'Not configured'}
               </div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              className="btn btn-primary btn-sm"
-              onClick={() => navigate('/cloud-overview')}
+              className="btn btn-secondary btn-sm"
+              onClick={handleRevalidate}
+              disabled={isRevalidating}
             >
-              View Multi-Cloud Overview →
+              {isRevalidating ? 'Validating...' : '🔄 Revalidate'}
             </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleDisconnect}
+              disabled={isDisconnecting}
+              style={{ color: 'var(--status-critical)' }}
+            >
+              {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+            {isConnected && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => navigate('/cloud-overview')}
+              >
+                View Multi-Cloud Overview →
+              </button>
+            )}
           </div>
         </div>
       )}

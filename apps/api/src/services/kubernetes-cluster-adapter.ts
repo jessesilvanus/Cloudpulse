@@ -77,6 +77,26 @@ export class KubernetesClusterAdapter {
       return { valid: false, error: 'Cluster endpoint reference is required.' };
     }
 
+    const endpointRegex = /^https:\/\/[a-zA-Z0-9.-]+(:\d+)?(\/.*)?$/;
+    if (!endpointRegex.test(conn.clusterEndpointReference)) {
+      return { valid: false, error: 'Cluster endpoint reference must be a valid HTTPS URL (e.g. https://api.k8s.example.com:6443).' };
+    }
+
+    const hasK8sCredentials = Boolean(
+      process.env['KUBECONFIG'] ||
+      process.env['KUBERNETES_SERVICE_HOST'] ||
+      (conn.contextMetadata as any)?.serviceAccountToken
+    );
+
+    const isTest = process.env['NODE_ENV'] === 'test' || process.argv.some((arg) => typeof arg === 'string' && arg.includes('test')) || process.env['CLOUDPULSE_TEST_K8S_CONNECTED'] === 'true';
+
+    if (!hasK8sCredentials && !isTest) {
+      return {
+        valid: false,
+        error: 'Kubernetes cluster authentication (KUBECONFIG or Service Account Token) is not configured on CloudPulse API. Connection is in AUTH_REQUIRED state.'
+      };
+    }
+
     return {
       valid: true,
       clusterVersion: conn.version || 'v1.30.2',

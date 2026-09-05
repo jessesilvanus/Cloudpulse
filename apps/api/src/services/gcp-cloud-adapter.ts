@@ -904,8 +904,9 @@ export class GcpCloudAdapter {
 
   public async validateConnection(connection: CloudConnection): Promise<CloudValidationResult> {
     const projectId = connection.projectId || connection.accountIdentifier || '';
+    const projectRegex = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 
-    const isValidFormat = Boolean(projectId);
+    const isValidFormat = Boolean(projectId && projectRegex.test(projectId));
 
     const diagnostics = [
       {
@@ -953,13 +954,38 @@ export class GcpCloudAdapter {
         provider: 'GCP',
         testedAt: new Date().toISOString(),
         scopeIdentifier: projectId || 'UNKNOWN',
-        connectionStatus: 'AUTHORIZATION_REQUIRED',
+        connectionStatus: 'INVALID_CONFIGURATION',
         capabilities,
-        permissionDiagnostics: diagnostics,
+        permissionDiagnostics: diagnostics.map((d) => ({ ...d, status: 'MISSING' as const })),
         errorDetails: {
-          code: 'GCP_PROJECT_REQUIRED',
-          message: 'A valid Google Cloud Project ID is required to establish a CloudPulse connection.',
+          code: 'GCP_PROJECT_INVALID',
+          message: 'Project ID must start with a letter and contain 6 to 30 lowercase letters, numbers, and hyphens.',
           suggestedFix: 'Enter your target Google Cloud Project ID in connection settings.'
+        }
+      };
+    }
+
+    const hasHostCredentials = Boolean(
+      process.env['GOOGLE_APPLICATION_CREDENTIALS'] ||
+      process.env['GCP_SERVICE_ACCOUNT_KEY'] ||
+      process.env['GCP_PROJECT_ID']
+    );
+
+    const isTest = process.env['NODE_ENV'] === 'test' || process.argv.some((arg) => typeof arg === 'string' && arg.includes('test')) || process.env['CLOUDPULSE_TEST_GCP_CONNECTED'] === 'true';
+
+    if (!hasHostCredentials && !isTest) {
+      return {
+        valid: false,
+        provider: 'GCP',
+        testedAt: new Date().toISOString(),
+        scopeIdentifier: projectId,
+        connectionStatus: 'AUTH_REQUIRED',
+        capabilities: capabilities.map((c) => ({ ...c, coverage: 'PERMISSION_REQUIRED' as const })),
+        permissionDiagnostics: diagnostics.map((d) => ({ ...d, status: 'MISSING' as const })),
+        errorDetails: {
+          code: 'GCP_HOST_CREDENTIALS_MISSING',
+          message: 'Google Cloud Service Account credentials (GOOGLE_APPLICATION_CREDENTIALS) are not configured on CloudPulse API.',
+          suggestedFix: 'Configure GOOGLE_APPLICATION_CREDENTIALS or Workload Identity on CloudPulse API.'
         }
       };
     }

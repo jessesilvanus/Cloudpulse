@@ -16,12 +16,17 @@ export function AzureConnectionWizardPage() {
   const [existingConnection, setExistingConnection] = useState<CloudConnection | null>(null);
 
   // Form fields
-  const [displayName, setDisplayName] = useState('Production-Azure-Subscription-01');
-  const [tenantId, setTenantId] = useState('72f988bf-86f1-41af-91ab-2d7cd011db47');
-  const [subscriptionId, setSubscriptionId] = useState('a41d9e20-36b1-4d92-8092-18bc9401f82e');
-  const [clientId, setClientId] = useState('sp-cloudpulse-azure-connector');
+  const [displayName, setDisplayName] = useState('');
+  const [tenantId, setTenantId] = useState('');
+  const [subscriptionId, setSubscriptionId] = useState('');
+  const [clientId, setClientId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState(false);
   const [connectResult, setConnectResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const isFromOnboarding = searchParams.get('from') === 'onboarding';
 
   useEffect(() => {
     async function loadGuide() {
@@ -31,7 +36,7 @@ export function AzureConnectionWizardPage() {
         setSteps(res.steps || []);
 
         const conns = await cloudConnectionsApi.getCloudConnections();
-        const az = conns.find((c: CloudConnection) => c.provider === 'AZURE' && c.status === 'CONNECTED');
+        const az = conns?.find((c: CloudConnection) => c.provider === 'AZURE');
         if (az) {
           setExistingConnection(az);
           if (az.displayName) setDisplayName(az.displayName);
@@ -47,18 +52,55 @@ export function AzureConnectionWizardPage() {
     loadGuide();
   }, []);
 
+  const handleDisconnect = async () => {
+    if (!existingConnection) return;
+    try {
+      setIsDisconnecting(true);
+      await cloudConnectionsApi.disconnectConnection(existingConnection.id);
+      setExistingConnection((prev) => prev ? { ...prev, status: 'NOT_CONNECTED', dataSource: 'NOT_CONNECTED' } : null);
+      setConnectResult({ success: true, message: 'Azure subscription disconnected.' });
+    } catch (err: any) {
+      setConnectResult({ success: false, message: err.message || 'Failed to disconnect Azure subscription.' });
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  const handleRevalidate = async () => {
+    if (!existingConnection) return;
+    try {
+      setIsRevalidating(true);
+      setConnectResult(null);
+      const res = await cloudConnectionsApi.revalidateConnection(existingConnection.id);
+      if (res?.status) {
+        setExistingConnection((prev) => prev ? { ...prev, status: res.status, dataSource: res.dataSource } : null);
+        setConnectResult({
+          success: res.status === 'CONNECTED',
+          message: res.status === 'CONNECTED' ? 'Azure connection verified successfully.' : `Azure validation status: ${res.status}`
+        });
+      }
+    } catch (err: any) {
+      setConnectResult({ success: false, message: err.message || 'Revalidation failed.' });
+    } finally {
+      setIsRevalidating(false);
+    }
+  };
+
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setConnectResult(null);
 
     try {
-      const conn = await cloudConnectionsApi.connectAzure({
-        displayName,
-        tenantId,
-        subscriptionId,
-        clientId
-      });
+      const payload: { displayName: string; tenantId: string; subscriptionId: string; clientId?: string } = {
+        displayName: displayName.trim() || 'Azure Subscription',
+        tenantId: tenantId.trim(),
+        subscriptionId: subscriptionId.trim(),
+      };
+      if (clientId.trim()) {
+        payload.clientId = clientId.trim();
+      }
+      const conn = await cloudConnectionsApi.connectAzure(payload);
 
       if (conn.status === 'CONNECTED') {
         setConnectResult({
@@ -67,9 +109,10 @@ export function AzureConnectionWizardPage() {
         });
         setExistingConnection(conn);
       } else {
+        setExistingConnection(conn);
         setConnectResult({
           success: false,
-          message: `Azure connection returned status ${conn.status}. Please ensure Reader role is granted to Service Principal in Azure Subscription IAM.`
+          message: `Azure connection returned status ${conn.status}. ${conn.metadata?.errorDetails?.message || 'Please ensure Reader role is granted to Service Principal in Azure Subscription IAM.'}`
         });
       }
     } catch (err: any) {
@@ -86,6 +129,8 @@ export function AzureConnectionWizardPage() {
     return <LoadingState message="Loading Microsoft Azure connection setup guide..." />;
   }
 
+  const isConnected = existingConnection?.status === 'CONNECTED';
+
   return (
     <div className="page-container">
       <PageHeader
@@ -94,9 +139,9 @@ export function AzureConnectionWizardPage() {
         actions={
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => navigate('/settings')}
+            onClick={() => navigate(isFromOnboarding ? '/onboarding' : '/settings')}
           >
-            ← Back to Settings
+            {isFromOnboarding ? '← Back to Onboarding' : '← Back to Settings'}
           </button>
         }
       />
@@ -105,12 +150,13 @@ export function AzureConnectionWizardPage() {
         <div
           style={{
             padding: '14px 18px',
-            backgroundColor: 'rgba(16, 185, 129, 0.08)',
-            border: '1px solid rgba(16, 185, 129, 0.25)',
+            backgroundColor: isConnected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+            border: `1px solid ${isConnected ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
             borderRadius: 'var(--radius-md)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexWrap: 'wrap',
             gap: '12px',
             marginBottom: '16px'
           }}
@@ -118,21 +164,52 @@ export function AzureConnectionWizardPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '20px' }}>🔷</span>
             <div>
-              <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>
-                Azure Subscription Currently Connected: {existingConnection.displayName}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>
+                  Azure Subscription: {existingConnection.displayName}
+                </div>
+                <span
+                  style={{
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: isConnected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.12)',
+                    color: isConnected ? 'var(--status-healthy)' : 'var(--text-muted)',
+                  }}
+                >
+                  ● {existingConnection.status}
+                </span>
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                Tenant: {existingConnection.tenantId} · Subscription ID: {existingConnection.subscriptionId || existingConnection.accountIdentifier}
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                Tenant: {existingConnection.tenantId || 'Not set'} · Subscription ID: {existingConnection.subscriptionId || existingConnection.accountIdentifier}
               </div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              className="btn btn-primary btn-sm"
-              onClick={() => navigate('/cloud-overview')}
+              className="btn btn-secondary btn-sm"
+              onClick={handleRevalidate}
+              disabled={isRevalidating}
             >
-              View Multi-Cloud Overview →
+              {isRevalidating ? 'Validating...' : '🔄 Revalidate'}
             </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleDisconnect}
+              disabled={isDisconnecting}
+              style={{ color: 'var(--status-critical)' }}
+            >
+              {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+            {isConnected && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => navigate('/cloud-overview')}
+              >
+                View Multi-Cloud Overview →
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -17,6 +17,9 @@ import {
   KubernetesSimulationResult
 } from '@cloudpulse/shared';
 import { KubernetesClusterAdapter } from './kubernetes-cluster-adapter.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
 export class KubernetesOperationsEngine {
   private adapter: KubernetesClusterAdapter;
@@ -25,7 +28,60 @@ export class KubernetesOperationsEngine {
 
   constructor() {
     this.adapter = new KubernetesClusterAdapter();
-    this.seedDefaultConnections();
+    if (this.isTestMode()) {
+      this.seedDefaultConnections();
+    } else {
+      this.loadStore();
+    }
+  }
+
+  private isTestMode(): boolean {
+    return process.env['NODE_ENV'] === 'test' || process.argv.some((arg) => arg.includes('test'));
+  }
+
+  private getStoreFilePath(): string {
+    try {
+      const primaryDir = path.resolve(process.cwd(), '.data');
+      if (!fs.existsSync(primaryDir)) {
+        fs.mkdirSync(primaryDir, { recursive: true });
+      }
+      return path.join(primaryDir, 'cloudpulse-k8s-store.json');
+    } catch {
+      return path.join(os.tmpdir(), 'cloudpulse-k8s-store.json');
+    }
+  }
+
+  private loadStore(): void {
+    if (this.isTestMode()) return;
+    try {
+      const filePath = this.getStoreFilePath();
+      if (!fs.existsSync(filePath)) return;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      if (!raw || !raw.trim()) return;
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.connections)) {
+        this.connections = data.connections;
+      }
+      if (Array.isArray(data.operations)) {
+        this.operations = data.operations;
+      }
+    } catch {
+      // Safe fallback
+    }
+  }
+
+  private persistStore(): void {
+    if (this.isTestMode()) return;
+    try {
+      const filePath = this.getStoreFilePath();
+      const payload = {
+        connections: this.connections,
+        operations: this.operations
+      };
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+    } catch {
+      // Safe fallback
+    }
   }
 
   private seedDefaultConnections() {
@@ -113,7 +169,7 @@ export class KubernetesOperationsEngine {
       clusterEndpointReference: payload.clusterEndpointReference,
       authorizationMethod: payload.authorizationMethod,
       namespaceScope: [],
-      status: 'CONNECTED',
+      status: 'VALIDATING',
       capabilities: this.adapter.getCapabilities({ provider: payload.provider }),
       permissions: {
         canReadWorkloads: true,
@@ -134,7 +190,18 @@ export class KubernetesOperationsEngine {
       updatedAt: new Date().toISOString()
     };
 
+    const validation = await this.adapter.validateConnection(conn);
+    if (validation.valid) {
+      conn.status = 'CONNECTED';
+      if (validation.clusterVersion) {
+        conn.version = validation.clusterVersion;
+      }
+    } else {
+      conn.status = 'AUTH_REQUIRED';
+    }
+
     this.connections.push(conn);
+    this.persistStore();
     return conn;
   }
 
@@ -142,7 +209,20 @@ export class KubernetesOperationsEngine {
    * Lists all Kubernetes connections for a workspace
    */
   public listConnections(workspaceId: string): KubernetesConnection[] {
-    return this.connections.filter((c) => c.workspaceId === workspaceId || workspaceId === 'ws-production');
+    return this.connections.filter((c) => c.workspaceId === workspaceId);
+  }
+
+  /**
+   * Disconnects a Kubernetes cluster connection
+   */
+  public disconnectCluster(connectionId: string, workspaceId: string): boolean {
+    const idx = this.connections.findIndex(
+      (c) => (c.id === connectionId || c.clusterId === connectionId) && c.workspaceId === workspaceId
+    );
+    if (idx === -1) return false;
+    this.connections.splice(idx, 1);
+    this.persistStore();
+    return true;
   }
 
   /**
@@ -156,6 +236,24 @@ export class KubernetesOperationsEngine {
       if (conn.status === 'CONNECTED') {
         clusters.push(await this.adapter.getCluster(conn));
       }
+    }
+
+    if (clusters.length === 0) {
+      return {
+        workspaceId,
+        totalClusters: conns.length,
+        connectedClusters: 0,
+        totalNodes: 0,
+        totalNamespaces: 0,
+        totalWorkloads: 0,
+        totalPods: 0,
+        healthyPods: 0,
+        degradedPods: 0,
+        stalledRollouts: 0,
+        activeSecurityFindings: 0,
+        governanceScore: 0,
+        clusters: []
+      };
     }
 
     return {

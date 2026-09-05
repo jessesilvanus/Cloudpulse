@@ -1339,13 +1339,17 @@ export const authApi = {
 export const cloudConnectionsApi = {
   getConnections: () => fetchJson<any[]>('/cloud-connections'),
   getAwsSetupInfo: () => fetchJson<any>('/cloud-connections/aws/setup-info'),
-  connectAws: (payload: { displayName?: string; roleArn: string; externalId: string }) =>
+  connectAws: (payload: { displayName?: string | undefined; roleArn: string; externalId: string }) =>
     fetchJson<any>('/cloud-connections/aws/connect', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
   validateConnection: (id: string) =>
     fetchJson<any>(`/cloud-connections/${id}/validate`, {
+      method: 'POST',
+    }),
+  revalidateConnection: (id: string) =>
+    fetchJson<any>(`/cloud-connections/${id}/revalidate`, {
       method: 'POST',
     }),
   syncConnection: (id: string) =>
@@ -1355,6 +1359,10 @@ export const cloudConnectionsApi = {
   disconnectConnection: (id: string) =>
     fetchJson<any>(`/cloud-connections/${id}/disconnect`, {
       method: 'POST',
+    }),
+  deleteConnection: (id: string) =>
+    fetchJson<any>(`/cloud-connections/${id}`, {
+      method: 'DELETE',
     }),
   getAwsLiveData: () => fetchJson<any>('/cloud-connections/aws/live-data'),
   getAwsInventory: () => fetchJson<any[]>('/cloud-connections/aws/inventory'),
@@ -2022,6 +2030,10 @@ export const kubernetesOperationsApi = {
     fetchJson<any>('/kubernetes/investigate', {
       method: 'POST',
       body: JSON.stringify({ prompt }),
+    }),
+  disconnectKubernetesCluster: (clusterId: string) =>
+    fetchJson<any>(`/kubernetes/clusters/${encodeURIComponent(clusterId)}/disconnect`, {
+      method: 'POST',
     }),
 };
 

@@ -7,15 +7,36 @@
 
 import { Router, Request, Response } from 'express';
 import { KubernetesOperationsEngine } from '../services/kubernetes-operations-engine.js';
+import { AuthIdentityEngine } from '../services/auth-identity-engine.js';
 
 export const kubernetesRouter: Router = Router();
 const engine = new KubernetesOperationsEngine();
+const authEngine = AuthIdentityEngine.getInstance();
 
 function getContext(req: Request) {
-  const workspaceId = (req.headers['x-workspace-id'] as string) || 'ws-production';
-  const organizationId = (req.headers['x-organization-id'] as string) || 'tenant-enterprise';
-  const userId = (req.headers['x-user-id'] as string) || 'usr-operator-01';
-  return { workspaceId, organizationId, userId };
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : null;
+  const user = token ? authEngine.verifySession(token) : null;
+
+  const reqWs = req.headers['x-workspace-id'] as string | undefined;
+  const reqOrg = req.headers['x-organization-id'] as string | undefined;
+  const reqUser = req.headers['x-user-id'] as string | undefined;
+
+  let workspaceId = reqWs || user?.workspaceId;
+  let organizationId = reqOrg || user?.organizationId;
+  let userId = reqUser || user?.id;
+
+  if (user) {
+    workspaceId = workspaceId || user.workspaceId || `ws-${user.id}`;
+    organizationId = organizationId || user.organizationId || 'org-default';
+    userId = user.id;
+  } else {
+    workspaceId = workspaceId || 'ws-anonymous';
+    organizationId = organizationId || 'org-anonymous';
+    userId = userId || 'usr-anonymous';
+  }
+
+  return { workspaceId, organizationId, userId, user };
 }
 
 // 1. Overview across all clusters in workspace
@@ -48,6 +69,13 @@ const handleClusterConnect = async (req: Request, res: Response) => {
     });
   }
 
+  if (!/^https:\/\//i.test(clusterEndpointReference)) {
+    return res.status(400).json({
+      ok: false,
+      error: { message: 'clusterEndpointReference must be a secure HTTPS endpoint.' }
+    });
+  }
+
   try {
     const conn = await engine.connectCluster(workspaceId, organizationId, userId, {
       name,
@@ -66,6 +94,27 @@ const handleClusterConnect = async (req: Request, res: Response) => {
 
 kubernetesRouter.post('/connect', handleClusterConnect);
 kubernetesRouter.post('/clusters/connect', handleClusterConnect);
+
+// Disconnect cluster
+kubernetesRouter.post('/clusters/:clusterId/disconnect', (req: Request, res: Response) => {
+  const { workspaceId } = getContext(req);
+  const clusterId = req.params.clusterId || '';
+  const success = engine.disconnectCluster(clusterId, workspaceId);
+  if (!success) {
+    return res.status(404).json({ ok: false, error: { message: `Cluster '${clusterId}' not found.` } });
+  }
+  return res.json({ ok: true, data: { clusterId, status: 'DISCONNECTED', message: 'Cluster disconnected successfully.' } });
+});
+
+kubernetesRouter.delete('/clusters/:clusterId', (req: Request, res: Response) => {
+  const { workspaceId } = getContext(req);
+  const clusterId = req.params.clusterId || '';
+  const success = engine.disconnectCluster(clusterId, workspaceId);
+  if (!success) {
+    return res.status(404).json({ ok: false, error: { message: `Cluster '${clusterId}' not found.` } });
+  }
+  return res.json({ ok: true, data: { clusterId, status: 'DISCONNECTED', message: 'Cluster disconnected successfully.' } });
+});
 
 // 4. Safe action catalog
 kubernetesRouter.get('/safe-actions', (req: Request, res: Response) => {

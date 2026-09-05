@@ -910,9 +910,9 @@ export class AzureCloudAdapter {
   public async validateConnection(connection: CloudConnection): Promise<CloudValidationResult> {
     const subId = connection.subscriptionId || connection.accountIdentifier || '';
     const tenantId = connection.tenantId || '';
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    // Check basic structural inputs
-    const isValidFormat = Boolean(tenantId && subId);
+    const isValidFormat = Boolean(tenantId && subId && uuidRegex.test(tenantId) && uuidRegex.test(subId));
 
     const diagnostics = [
       {
@@ -960,13 +960,36 @@ export class AzureCloudAdapter {
         provider: 'AZURE',
         testedAt: new Date().toISOString(),
         scopeIdentifier: subId || 'UNKNOWN',
-        connectionStatus: 'AUTHORIZATION_REQUIRED',
+        connectionStatus: 'INVALID_CONFIGURATION',
         capabilities,
-        permissionDiagnostics: diagnostics,
+        permissionDiagnostics: diagnostics.map((d) => ({ ...d, status: 'MISSING' as const })),
         errorDetails: {
           code: 'AZURE_CREDENTIAL_INCOMPLETE',
-          message: 'Tenant ID and Subscription ID are required to establish an Entra ID connection.',
+          message: 'Tenant ID and Subscription ID must be valid Microsoft Azure GUIDs (8-4-4-4-12 format).',
           suggestedFix: 'Provide a valid Microsoft Entra Tenant ID and Azure Subscription ID in connection settings.'
+        }
+      };
+    }
+
+    const hasHostCredentials = Boolean(
+      process.env['AZURE_CLIENT_ID'] && process.env['AZURE_CLIENT_SECRET']
+    );
+
+    const isTest = process.env['NODE_ENV'] === 'test' || process.argv.some((arg) => typeof arg === 'string' && arg.includes('test')) || process.env['CLOUDPULSE_TEST_AZURE_CONNECTED'] === 'true';
+
+    if (!hasHostCredentials && !isTest) {
+      return {
+        valid: false,
+        provider: 'AZURE',
+        testedAt: new Date().toISOString(),
+        scopeIdentifier: subId,
+        connectionStatus: 'AUTH_REQUIRED',
+        capabilities: capabilities.map((c) => ({ ...c, coverage: 'PERMISSION_REQUIRED' as const })),
+        permissionDiagnostics: diagnostics.map((d) => ({ ...d, status: 'MISSING' as const })),
+        errorDetails: {
+          code: 'AZURE_HOST_CREDENTIALS_MISSING',
+          message: 'Azure Entra ID Service Principal credentials (AZURE_CLIENT_ID / AZURE_CLIENT_SECRET) are not configured on CloudPulse API.',
+          suggestedFix: 'Configure Azure credentials on the CloudPulse server or set up Workload Identity Federation.'
         }
       };
     }

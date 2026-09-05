@@ -7,11 +7,14 @@ import type { KubernetesProvider } from '@cloudpulse/shared';
 
 export function KubernetesConnectWizardPage() {
   const navigate = useNavigate();
+  const searchParams = new URLSearchParams(window.location.search);
+  const isFromOnboarding = searchParams.get('from') === 'onboarding';
+
   const [provider, setProvider] = useState<KubernetesProvider>('EKS');
   const [clusterName, setClusterName] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [region, setRegion] = useState('us-east-1');
-  const [cloudScope, setCloudScope] = useState('123456789012');
+  const [cloudScope, setCloudScope] = useState('');
   const [authMethod, setAuthMethod] = useState<'AWS_IAM_IRSA' | 'AZURE_ENTRA_AAD' | 'GCP_IAM' | 'SERVICE_ACCOUNT_TOKEN'>('AWS_IAM_IRSA');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,19 +25,19 @@ export function KubernetesConnectWizardPage() {
     if (p === 'EKS') {
       setAuthMethod('AWS_IAM_IRSA');
       setRegion('us-east-1');
-      setCloudScope('123456789012');
+      setCloudScope('');
     } else if (p === 'AKS') {
       setAuthMethod('AZURE_ENTRA_AAD');
       setRegion('eastus');
-      setCloudScope('00000000-0000-0000-0000-000000000000');
+      setCloudScope('');
     } else if (p === 'GKE') {
       setAuthMethod('GCP_IAM');
       setRegion('us-central1');
-      setCloudScope('cloudpulse-prod-gke');
+      setCloudScope('');
     } else {
       setAuthMethod('SERVICE_ACCOUNT_TOKEN');
       setRegion('on-prem');
-      setCloudScope('datacenter-01');
+      setCloudScope('');
     }
   };
 
@@ -48,15 +51,20 @@ export function KubernetesConnectWizardPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await kubernetesOperationsApi.connectKubernetesCluster({
+      const conn = await kubernetesOperationsApi.connectKubernetesCluster({
         name: clusterName,
         provider,
         clusterEndpointReference: endpoint,
         authorizationMethod: authMethod,
         regionOrLocation: region,
-        cloudAccountOrProject: cloudScope
+        cloudAccountOrProject: cloudScope || undefined
       });
-      navigate('/kubernetes');
+
+      if (conn?.status === 'CONNECTED') {
+        navigate(isFromOnboarding ? '/onboarding' : '/kubernetes');
+      } else {
+        setError(`Cluster registered with status '${conn?.status || 'AUTH_REQUIRED'}'. ${conn?.error || 'Cluster endpoint authentication (KUBECONFIG or Service Account Token) required.'}`);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to connect Kubernetes cluster.');
     } finally {
@@ -102,8 +110,8 @@ roleRef:
         title="Connect Kubernetes Production Cluster"
         subtitle="Authorize CLOUDPULSE to securely discover and monitor real Kubernetes clusters across EKS, AKS, GKE, or Self-Managed infrastructure"
         actions={
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/kubernetes')}>
-            ← Cancel
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate(isFromOnboarding ? '/onboarding' : '/kubernetes')}>
+            {isFromOnboarding ? '← Back to Onboarding' : '← Cancel'}
           </button>
         }
       />
