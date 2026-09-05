@@ -203,7 +203,7 @@ export function OnboardingPage() {
                 5. READY
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                {hasAnyConnection ? 'Observability Live' : 'Command Center'}
+                {hasAnyConnection ? 'Observability Live' : 'Pending Cloud Connection'}
               </div>
             </div>
           </div>

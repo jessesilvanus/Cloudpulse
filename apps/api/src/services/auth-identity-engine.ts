@@ -77,19 +77,39 @@ export class AuthIdentityEngine {
     return process.env['NODE_ENV'] === 'test' || process.argv.some((arg) => arg.includes('test'));
   }
 
+  private getCandidateStorePaths(): string[] {
+    const paths: string[] = [];
+    if (process.env['DATA_DIR']) {
+      paths.push(path.join(process.env['DATA_DIR'], 'cloudpulse-auth-store.json'));
+    }
+    paths.push(path.resolve(process.cwd(), 'data', 'cloudpulse-auth-store.json'));
+    paths.push(path.resolve(process.cwd(), '.data', 'cloudpulse-auth-store.json'));
+    paths.push('/app/data/cloudpulse-auth-store.json');
+    paths.push(path.join(os.tmpdir(), 'cloudpulse-auth-store.json'));
+    return paths;
+  }
+
   private loadStore(): void {
     if (this.isTestMode()) return;
     try {
-      const filePath = this.getStoreFilePath();
-      if (!fs.existsSync(filePath)) return;
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      const candidates = this.getCandidateStorePaths();
+      let foundPath: string | null = null;
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          foundPath = p;
+          break;
+        }
+      }
+      if (!foundPath) return;
+
+      const raw = fs.readFileSync(foundPath, 'utf-8');
       if (!raw || !raw.trim()) return;
       const data = JSON.parse(raw);
       if (data.users) {
         for (const [k, v] of Object.entries(data.users)) this.users.set(k, v as UserProfile);
       }
       if (data.userPasswords) {
-        for (const [k, v] of Object.entries(data.userPasswords)) this.userPasswords.set(k, v as string);
+        for (const [k, v] of Object.entries(data.userPasswords)) this.userPasswords.set(k.toLowerCase().trim(), v as string);
       }
       if (data.organizations) {
         for (const [k, v] of Object.entries(data.organizations)) this.organizations.set(k, v as Organization);
@@ -207,9 +227,14 @@ export class AuthIdentityEngine {
     provider?: 'google' | 'apple' | 'microsoft' | 'email';
     role?: RealUserRole;
   }): AuthSession {
-    const existing = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === payload.email.toLowerCase());
+    const cleanEmail = payload.email?.trim()?.toLowerCase();
+    const cleanName = payload.name?.trim() || 'User';
+    if (!cleanEmail) {
+      throw new Error('Email is required.');
+    }
+    const existing = Array.from(this.users.values()).find((u) => u.email.trim().toLowerCase() === cleanEmail);
     if (existing) {
-      throw new Error(`Account with email ${payload.email} already exists.`);
+      throw new Error(`Account with email ${cleanEmail} already exists.`);
     }
 
     const userId = `usr-${crypto.randomBytes(4).toString('hex')}`;
@@ -218,8 +243,8 @@ export class AuthIdentityEngine {
 
     const org: Organization = {
       id: orgId,
-      name: `${payload.name}'s Organization`,
-      slug: payload.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+      name: `${cleanName}'s Organization`,
+      slug: cleanName.toLowerCase().replace(/[^a-z0-9]/g, '-'),
       tier: 'ENTERPRISE',
       createdAt: new Date().toISOString(),
       ownerId: userId
@@ -235,8 +260,8 @@ export class AuthIdentityEngine {
 
     const user: UserProfile = {
       id: userId,
-      name: payload.name,
-      email: payload.email,
+      name: cleanName,
+      email: cleanEmail,
       provider: payload.provider || 'email',
       role: payload.role || 'OWNER',
       status: 'ACTIVE',
@@ -260,7 +285,7 @@ export class AuthIdentityEngine {
     this.workspaces.set(wsId, ws);
     this.users.set(userId, user);
     if (payload.password) {
-      this.userPasswords.set(payload.email.toLowerCase(), this.hashPassword(payload.password));
+      this.userPasswords.set(cleanEmail, this.hashPassword(payload.password));
     }
     this.memberships.set(membership.id, membership);
 
@@ -272,14 +297,14 @@ export class AuthIdentityEngine {
   }
 
   public login(payload: { email: string; password?: string }): AuthSession {
-    const emailKey = payload.email?.toLowerCase()?.trim();
+    const emailKey = payload.email?.trim()?.toLowerCase();
     if (!emailKey) {
       throw new Error('Email is required.');
     }
     if (!payload.password) {
       throw new Error('Password is required.');
     }
-    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
+    const user = Array.from(this.users.values()).find((u) => u.email.trim().toLowerCase() === emailKey);
     if (!user) {
       throw new Error('Invalid email or password.');
     }
@@ -321,8 +346,8 @@ export class AuthIdentityEngine {
     provider: 'google' | 'apple' | 'microsoft',
     identity: { email: string; name: string; subjectId?: string }
   ): AuthSession {
-    const emailKey = identity.email.toLowerCase();
-    const existing = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
+    const emailKey = identity.email.trim().toLowerCase();
+    const existing = Array.from(this.users.values()).find((u) => u.email.trim().toLowerCase() === emailKey);
 
     if (existing) {
       existing.lastLoginAt = new Date().toISOString();
@@ -721,8 +746,8 @@ export class AuthIdentityEngine {
   }
 
   public forgotPassword(email: string): { resetToken: string; message: string } {
-    const emailKey = email.toLowerCase();
-    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
+    const emailKey = email?.trim()?.toLowerCase();
+    const user = Array.from(this.users.values()).find((u) => u.email.trim().toLowerCase() === emailKey);
     const genericMessage = 'If an account exists for that email address, a password reset link has been sent.';
 
     if (!user) {
@@ -738,8 +763,8 @@ export class AuthIdentityEngine {
   }
 
   public async forgotPasswordAsync(email: string): Promise<{ message: string }> {
-    const emailKey = email.toLowerCase();
-    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
+    const emailKey = email?.trim()?.toLowerCase();
+    const user = Array.from(this.users.values()).find((u) => u.email.trim().toLowerCase() === emailKey);
 
     // Always return a generic message to prevent email enumeration
     const genericMessage = 'If an account exists for that email address, a password reset link has been sent.';
@@ -759,13 +784,14 @@ export class AuthIdentityEngine {
     const frontendUrl = (process.env['FRONTEND_URL'] || 'https://cloudpulse-web-w4ru-ten.vercel.app').replace(/\/+$/, '');
     const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
 
-    // Attempt to send email via EmailService (errors are logged, not surfaced to caller)
+    // Attempt to send email via EmailService
     try {
       const { EmailService } = await import('./email-service.js');
       const emailSvc = new EmailService();
       await emailSvc.sendPasswordReset(emailKey, resetUrl);
     } catch (emailErr: any) {
       console.error('[AuthEngine] Password reset email send failed:', emailErr?.message || 'Unknown error');
+      throw new Error(`Email delivery failed: ${emailErr?.message || 'Could not send reset email'}`);
     }
 
     return { message: genericMessage };
@@ -779,7 +805,7 @@ export class AuthIdentityEngine {
       throw new Error('New password must be at least 8 characters.');
     }
     // Hash the incoming raw token to look up the stored hash
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    const hashedToken = crypto.createHash('sha256').update(token.trim()).digest('hex');
     const entry = this.resetTokens.get(hashedToken);
     if (!entry || entry.expiresAt < Date.now()) {
       // Clean up expired token if present
@@ -788,11 +814,12 @@ export class AuthIdentityEngine {
       throw new Error('Invalid or expired password reset token.');
     }
 
-    this.userPasswords.set(entry.email, this.hashPassword(newPassword));
+    const cleanEmail = entry.email.trim().toLowerCase();
+    this.userPasswords.set(cleanEmail, this.hashPassword(newPassword));
     // Invalidate token — single-use
     this.resetTokens.delete(hashedToken);
     // Invalidate all existing sessions for this user to force re-login
-    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === entry.email);
+    const user = Array.from(this.users.values()).find((u) => u.email.trim().toLowerCase() === cleanEmail);
     if (user) {
       for (const [sessionToken, sessionUser] of this.sessions.entries()) {
         if (sessionUser.id === user.id) {

@@ -14,11 +14,11 @@ export class EmailService {
   private fromEmail: string;
 
   constructor() {
-    this.provider = (process.env['EMAIL_PROVIDER'] || '').toLowerCase().trim();
-    this.fromEmail = (process.env['PASSWORD_RESET_FROM_EMAIL'] || '').trim();
+    this.provider = (process.env['EMAIL_PROVIDER'] || 'sendgrid').toLowerCase().trim();
+    this.fromEmail = (process.env['PASSWORD_RESET_FROM_EMAIL'] || '1ep23cs071.jesse@gmail.com').trim();
 
     if (!this.provider) {
-      throw new Error('EMAIL_PROVIDER environment variable is required (set to "sendgrid").');
+      throw new Error('EMAIL_PROVIDER environment variable is required (default: "sendgrid").');
     }
     if (!this.fromEmail) {
       throw new Error('PASSWORD_RESET_FROM_EMAIL environment variable is required.');

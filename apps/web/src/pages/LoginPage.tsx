@@ -9,6 +9,7 @@ export function LoginPage() {
   const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT'>('LOGIN');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('PLATFORM_ENGINEER');
   const [loading, setLoading] = useState(false);
@@ -36,21 +37,46 @@ export function LoginPage() {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
+
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setError('Email address is required.');
+      return;
+    }
+
+    if (mode === 'REGISTER') {
+      const cleanName = name.trim();
+      if (!cleanName) {
+        setError('Full name is required to create an account.');
+        return;
+      }
+      if (!password || password.length < 8) {
+        setError('Password must be at least 8 characters long.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match. Please verify your confirmation password.');
+        return;
+      }
+    } else if (mode === 'LOGIN') {
+      if (!password) {
+        setError('Password is required.');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
       if (mode === 'LOGIN') {
         // login() updates AuthContext → useEffect redirect fires automatically
-        await login({ email, password });
-        // If we get here without the useEffect firing (edge case), navigate directly
+        await login({ email: cleanEmail, password });
         setSuccessMsg('Signed in successfully. Loading workspace...');
       } else if (mode === 'REGISTER') {
-        await register({ name, email, password, role });
-        setSuccessMsg('Account created! Redirecting to onboarding...');
-        // register() updates AuthContext → useEffect will redirect to /onboarding for new users
-        // If onboardingCompleted is already set to true (edge case), useEffect handles it
+        await register({ name: name.trim(), email: cleanEmail, password, role });
+        setSuccessMsg('Account created successfully! Proceeding to onboarding...');
       } else if (mode === 'FORGOT') {
-        const res = await authApi.forgotPassword(email);
+        const res = await authApi.forgotPassword(cleanEmail);
         setSuccessMsg(res.message || 'If an account exists for that email, a reset link has been sent.');
       }
     } catch (err: any) {
@@ -356,6 +382,24 @@ export function LoginPage() {
               </div>
             )}
 
+            {mode === 'REGISTER' && (
+              <div className={styles.inputGroup}>
+                <label htmlFor="reg-confirm-password" className={styles.inputLabel}>
+                  Confirm Password
+                </label>
+                <input
+                  id="reg-confirm-password"
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  autoComplete="new-password"
+                  className={styles.inputField}
+                />
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading}
@@ -381,6 +425,8 @@ export function LoginPage() {
                   onClick={() => {
                     setError(null);
                     setSuccessMsg(null);
+                    setPassword('');
+                    setConfirmPassword('');
                     setMode('REGISTER');
                   }}
                   className={styles.linkButton}
@@ -396,6 +442,8 @@ export function LoginPage() {
                   onClick={() => {
                     setError(null);
                     setSuccessMsg(null);
+                    setPassword('');
+                    setConfirmPassword('');
                     setMode('LOGIN');
                   }}
                   className={styles.linkButton}
@@ -411,6 +459,8 @@ export function LoginPage() {
                   onClick={() => {
                     setError(null);
                     setSuccessMsg(null);
+                    setPassword('');
+                    setConfirmPassword('');
                     setMode('LOGIN');
                   }}
                   className={styles.linkButton}

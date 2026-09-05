@@ -60,6 +60,9 @@ import { receiverRouter, queryRouter, startTelemetryEngine } from '@cloudpulse/t
 const config = loadConfig();
 const app = express();
 
+// Trust reverse proxy (Render, Vercel, etc.) for correct client IP detection
+app.set('trust proxy', 1);
+
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
 const allowedOrigins = (process.env['CORS_ORIGIN'] || 'http://localhost:5173')

@@ -6,13 +6,20 @@ const authEngine = AuthIdentityEngine.getInstance();
 
 // ─── Lightweight In-Memory Rate Limiter ───────────────────────────────────────
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_MAX = 20;         // max attempts per window per IP
+const RATE_LIMIT_MAX = 60; // max attempts per window (increased from 20 to prevent false-positive lockouts)
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 function authRateLimit(req: Request, res: Response, next: NextFunction): void {
+  // Always allow in test environments
+  if (process.env['NODE_ENV'] === 'test') {
+    return next();
+  }
+
   const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const key = email ? `${ip}:${email}` : ip;
   const now = Date.now();
-  const entry = rateLimitStore.get(ip);
+  const entry = rateLimitStore.get(key);
 
   if (entry && entry.resetAt > now) {
     if (entry.count >= RATE_LIMIT_MAX) {
@@ -26,13 +33,13 @@ function authRateLimit(req: Request, res: Response, next: NextFunction): void {
     }
     entry.count++;
   } else {
-    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    rateLimitStore.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
   }
 
   // Cleanup stale entries periodically (on ~1% of requests)
   if (Math.random() < 0.01) {
-    for (const [key, val] of rateLimitStore.entries()) {
-      if (val.resetAt <= now) rateLimitStore.delete(key);
+    for (const [k, val] of rateLimitStore.entries()) {
+      if (val.resetAt <= now) rateLimitStore.delete(k);
     }
   }
 
@@ -251,8 +258,13 @@ authRouter.post('/forgot-password', authRateLimit, async (req: Request, res: Res
     const result = await authEngine.forgotPasswordAsync(email.trim());
     return res.json({ ok: true, data: { message: result.message } });
   } catch (err: any) {
-    // Return generic message even on unexpected errors
-    return res.json({ ok: true, data: { message: 'If an account exists for that email address, a password reset link has been sent.' } });
+    return res.status(500).json({
+      ok: false,
+      error: {
+        code: 'EMAIL_DELIVERY_FAILED',
+        message: err.message || 'Failed to dispatch password reset email. Please contact support or try again later.'
+      }
+    });
   }
 });
 
