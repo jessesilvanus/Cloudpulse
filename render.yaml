@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: cloudpulse-api
+    runtime: docker
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: CORS_ORIGIN
+        value: "https://cloudpulse-web-w4ru-ten.vercel.app,http://localhost:5173"
+      - key: API_VERSION
+        value: "v1"
+    healthCheckPath: /health/live
