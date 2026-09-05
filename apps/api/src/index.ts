@@ -178,14 +178,15 @@ startTelemetryEngine(4318).catch((err) => {
 
 // ─── Start CLOUDPULSE Gateway Server ──────────────────────────────────────────
 
-const server = app.listen(config.port, () => {
+const server = app.listen(config.port, '0.0.0.0', () => {
   logger.info(`CLOUDPULSE API Gateway started`, {
     port: config.port,
+    host: '0.0.0.0',
     env: config.nodeEnv,
     version: '0.0.2',
   });
-  logger.info(`Health:  http://localhost:${config.port}/health`);
-  logger.info(`API:     http://localhost:${config.port}${apiBase}/overview`);
+  logger.info(`Health:  http://0.0.0.0:${config.port}/health`);
+  logger.info(`API:     http://0.0.0.0:${config.port}${apiBase}/overview`);
 });
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────

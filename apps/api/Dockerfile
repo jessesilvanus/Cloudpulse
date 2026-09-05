@@ -8,20 +8,23 @@ ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
 
-# Copy workspace package manifests
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Copy workspace configuration and all package manifests for frozen lockfile resolution
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/telemetry-engine/package.json ./packages/telemetry-engine/
 COPY packages/instrumentation/package.json ./packages/instrumentation/
 COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY services/api-gateway/package.json ./services/api-gateway/
+COPY services/order-service/package.json ./services/order-service/
+COPY services/payment-service/package.json ./services/payment-service/
+COPY services/traffic-generator/package.json ./services/traffic-generator/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
-COPY packages/shared/ ./packages/shared/
-COPY packages/telemetry-engine/ ./packages/telemetry-engine/
-COPY packages/instrumentation/ ./packages/instrumentation/
+# Copy source code for packages and API app
+COPY packages/ ./packages/
 COPY apps/api/ ./apps/api/
 
 # Build all dependencies and API application
