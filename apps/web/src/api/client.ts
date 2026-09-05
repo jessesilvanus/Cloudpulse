@@ -107,7 +107,7 @@ import type {
   PlatformCostRecord,
 } from '@cloudpulse/shared';
 
-const RAW_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const RAW_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const API_BASE = `${RAW_BASE}/api/v1`;
 
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
