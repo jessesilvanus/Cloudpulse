@@ -8,6 +8,7 @@ import { AppShell } from './components/layout/AppShell.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { OnboardingPage } from './pages/OnboardingPage.tsx';
 import { AuthCallbackPage } from './pages/AuthCallbackPage.tsx';
+import { ResetPasswordPage } from './pages/ResetPasswordPage.tsx';
 
 // Platform Core Pages
 import { OverviewPage } from './pages/OverviewPage.tsx';
@@ -64,6 +65,7 @@ export function App() {
         <Route path="/register" element={<LoginPage />} />
         <Route path="/profile" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* Guided Onboarding Route */}
         <Route

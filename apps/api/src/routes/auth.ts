@@ -1,14 +1,52 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { AuthIdentityEngine } from '../services/auth-identity-engine.js';
 
 export const authRouter: Router = Router();
 const authEngine = AuthIdentityEngine.getInstance();
 
-authRouter.post('/register', (req: Request, res: Response) => {
+// ─── Lightweight In-Memory Rate Limiter ───────────────────────────────────────
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_MAX = 20;         // max attempts per window per IP
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+function authRateLimit(req: Request, res: Response, next: NextFunction): void {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const entry = rateLimitStore.get(ip);
+
+  if (entry && entry.resetAt > now) {
+    if (entry.count >= RATE_LIMIT_MAX) {
+      const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
+      res.setHeader('Retry-After', String(retryAfterSec));
+      res.status(429).json({
+        ok: false,
+        error: { code: 'RATE_LIMITED', message: `Too many attempts. Please try again in ${Math.ceil(retryAfterSec / 60)} minute(s).` }
+      });
+      return;
+    }
+    entry.count++;
+  } else {
+    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+  }
+
+  // Cleanup stale entries periodically (on ~1% of requests)
+  if (Math.random() < 0.01) {
+    for (const [key, val] of rateLimitStore.entries()) {
+      if (val.resetAt <= now) rateLimitStore.delete(key);
+    }
+  }
+
+  next();
+}
+
+authRouter.post('/register', authRateLimit, (req: Request, res: Response) => {
   try {
     const { name, email, password, provider, role } = req.body;
     if (!name || !email) {
       return res.status(400).json({ ok: false, error: { message: 'Name and email are required.' } });
+    }
+    if (!password || password.length < 8) {
+      return res.status(400).json({ ok: false, error: { message: 'Password must be at least 8 characters.' } });
     }
     const session = authEngine.register({ name, email, password, provider, role });
     return res.status(201).json({ ok: true, data: session });
@@ -17,11 +55,11 @@ authRouter.post('/register', (req: Request, res: Response) => {
   }
 });
 
-authRouter.post('/login', (req: Request, res: Response) => {
+authRouter.post('/login', authRateLimit, (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
-    if (!email) {
-      return res.status(400).json({ ok: false, error: { message: 'Email is required.' } });
+    if (!email || !password) {
+      return res.status(400).json({ ok: false, error: { message: 'Email and password are required.' } });
     }
     const session = authEngine.login({ email, password });
     return res.json({ ok: true, data: session });
@@ -70,7 +108,7 @@ authRouter.get('/callback/:provider', async (req: Request, res: Response) => {
   const isJsonClient = Boolean(
     req.headers.accept?.includes('application/json') && !req.headers.accept?.includes('text/html')
   );
-  const frontendBaseUrl = process.env['FRONTEND_BASE_URL'] || 'http://localhost:5173';
+  const frontendBaseUrl = (process.env['FRONTEND_URL'] || process.env['FRONTEND_BASE_URL'] || 'http://localhost:5173').replace(/\/+$/, '');
 
   try {
     if (error) {
@@ -108,7 +146,7 @@ authRouter.post('/callback/:provider', async (req: Request, res: Response) => {
   const isJsonClient = Boolean(
     req.is('json') || (req.headers.accept?.includes('application/json') && !req.headers.accept?.includes('text/html'))
   );
-  const frontendBaseUrl = process.env['FRONTEND_BASE_URL'] || 'http://localhost:5173';
+  const frontendBaseUrl = (process.env['FRONTEND_URL'] || process.env['FRONTEND_BASE_URL'] || 'http://localhost:5173').replace(/\/+$/, '');
 
   try {
     if (error) {
@@ -193,13 +231,18 @@ authRouter.post('/oauth/apple', (req: Request, res: Response) => {
   }
 });
 
-authRouter.post('/forgot-password', (req: Request, res: Response) => {
+authRouter.post('/forgot-password', authRateLimit, async (req: Request, res: Response) => {
   const { email } = req.body;
-  if (!email) {
+  if (!email || typeof email !== 'string') {
     return res.status(400).json({ ok: false, error: { message: 'Email is required.' } });
   }
-  const result = authEngine.forgotPassword(email);
-  return res.json({ ok: true, data: result });
+  try {
+    const result = await authEngine.forgotPasswordAsync(email.trim());
+    return res.json({ ok: true, data: { message: result.message } });
+  } catch (err: any) {
+    // Return generic message even on unexpected errors
+    return res.json({ ok: true, data: { message: 'If an account exists for that email address, a password reset link has been sent.' } });
+  }
 });
 
 authRouter.post('/reset-password', (req: Request, res: Response) => {

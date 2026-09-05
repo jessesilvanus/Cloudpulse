@@ -102,9 +102,7 @@ export class AuthIdentityEngine {
     this.users.set(userId, user);
     this.userPasswords.set('jesse@cloudpulse.io', this.hashPassword('CloudPulse2026!'));
     this.memberships.set(membership.id, membership);
-
-    // Initial default bearer token for testing/CLI
-    this.sessions.set('cp-token-admin-jesse', user);
+    // Note: No permanent static session token — users must log in via /auth/login
   }
 
   public register(payload: {
@@ -178,17 +176,22 @@ export class AuthIdentityEngine {
   }
 
   public login(payload: { email: string; password?: string }): AuthSession {
-    const emailKey = payload.email.toLowerCase();
+    const emailKey = payload.email?.toLowerCase()?.trim();
+    if (!emailKey) {
+      throw new Error('Email is required.');
+    }
+    if (!payload.password) {
+      throw new Error('Password is required.');
+    }
     const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
     if (!user) {
       throw new Error('Invalid email or password.');
     }
 
-    if (payload.password) {
-      const hashed = this.hashPassword(payload.password);
-      if (this.userPasswords.get(emailKey) !== hashed) {
-        throw new Error('Invalid email or password.');
-      }
+    // Always verify password — no bypass allowed
+    const hashed = this.hashPassword(payload.password);
+    if (this.userPasswords.get(emailKey) !== hashed) {
+      throw new Error('Invalid email or password.');
     }
 
     user.lastLoginAt = new Date().toISOString();
@@ -619,26 +622,67 @@ export class AuthIdentityEngine {
     return entry.session;
   }
 
-  public forgotPassword(email: string): { resetToken: string; message: string } {
+  public async forgotPasswordAsync(email: string): Promise<{ message: string }> {
     const emailKey = email.toLowerCase();
     const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === emailKey);
+
+    // Always return a generic message to prevent email enumeration
+    const genericMessage = 'If an account exists for that email address, a password reset link has been sent.';
+
     if (!user) {
-      return { resetToken: 'mock-token', message: 'If that email exists, password reset instructions have been sent.' };
+      return { message: genericMessage };
     }
 
-    const token = crypto.randomBytes(24).toString('hex');
-    this.resetTokens.set(token, { email: emailKey, expiresAt: Date.now() + 3600000 });
-    return { resetToken: token, message: 'Password reset token generated successfully.' };
+    // Generate cryptographically secure raw token (32 bytes = 64 hex chars)
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    // Store only the SHA-256 hash — never the raw token
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    this.resetTokens.set(hashedToken, { email: emailKey, expiresAt: Date.now() + 3600000 });
+
+    // Build reset URL using FRONTEND_URL env var
+    const frontendUrl = (process.env['FRONTEND_URL'] || 'https://cloudpulse-web-w4ru-ten.vercel.app').replace(/\/+$/, '');
+    const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
+
+    // Attempt to send email via EmailService (errors are logged, not surfaced to caller)
+    try {
+      const { EmailService } = await import('./email-service.js');
+      const emailSvc = new EmailService();
+      await emailSvc.sendPasswordReset(emailKey, resetUrl);
+    } catch (emailErr: any) {
+      console.error('[AuthEngine] Password reset email send failed:', emailErr?.message || 'Unknown error');
+    }
+
+    return { message: genericMessage };
   }
 
   public resetPassword(token: string, newPassword: string): boolean {
-    const entry = this.resetTokens.get(token);
+    if (!token || typeof token !== 'string' || token.length < 32) {
+      throw new Error('Invalid password reset token.');
+    }
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('New password must be at least 8 characters.');
+    }
+    // Hash the incoming raw token to look up the stored hash
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    const entry = this.resetTokens.get(hashedToken);
     if (!entry || entry.expiresAt < Date.now()) {
+      // Clean up expired token if present
+      if (entry) this.resetTokens.delete(hashedToken);
       throw new Error('Invalid or expired password reset token.');
     }
 
     this.userPasswords.set(entry.email, this.hashPassword(newPassword));
-    this.resetTokens.delete(token);
+    // Invalidate token — single-use
+    this.resetTokens.delete(hashedToken);
+    // Invalidate all existing sessions for this user to force re-login
+    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === entry.email);
+    if (user) {
+      for (const [sessionToken, sessionUser] of this.sessions.entries()) {
+        if (sessionUser.id === user.id) {
+          this.sessions.delete(sessionToken);
+        }
+      }
+    }
     return true;
   }
 

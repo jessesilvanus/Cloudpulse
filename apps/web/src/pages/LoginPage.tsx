@@ -40,16 +40,18 @@ export function LoginPage() {
 
     try {
       if (mode === 'LOGIN') {
+        // login() updates AuthContext → useEffect redirect fires automatically
         await login({ email, password });
+        // If we get here without the useEffect firing (edge case), navigate directly
         setSuccessMsg('Signed in successfully. Loading workspace...');
-        setTimeout(() => navigate(returnUrl), 400);
       } else if (mode === 'REGISTER') {
         await register({ name, email, password, role });
-        setSuccessMsg('Enterprise account created! Redirecting to cloud connection onboarding...');
-        setTimeout(() => navigate('/onboarding'), 400);
+        setSuccessMsg('Account created! Redirecting to onboarding...');
+        // register() updates AuthContext → useEffect will redirect to /onboarding for new users
+        // If onboardingCompleted is already set to true (edge case), useEffect handles it
       } else if (mode === 'FORGOT') {
         const res = await authApi.forgotPassword(email);
-        setSuccessMsg(res.message);
+        setSuccessMsg(res.message || 'If an account exists for that email, a reset link has been sent.');
       }
     } catch (err: any) {
       setError(err.message || 'Authentication operation failed.');
