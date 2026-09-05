@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "build": "tsc && vite build",
+    "prebuild": "pnpm --filter @cloudpulse/shared build",
+    "build": "pnpm --filter @cloudpulse/shared build && tsc && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm --filter @cloudpulse/shared build && tsc --noEmit",
     "lint": "eslint .",
     "clean": "rimraf dist"
   },
