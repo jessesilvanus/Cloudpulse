@@ -6,7 +6,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { KubernetesOperationsEngine } from '../services/kubernetes-operations-engine';
+import { KubernetesOperationsEngine } from '../services/kubernetes-operations-engine.js';
 
 export const kubernetesRouter: Router = Router();
 const engine = new KubernetesOperationsEngine();

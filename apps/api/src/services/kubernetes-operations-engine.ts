@@ -16,7 +16,7 @@ import {
   KubernetesSafeAction,
   KubernetesSimulationResult
 } from '@cloudpulse/shared';
-import { KubernetesClusterAdapter } from './kubernetes-cluster-adapter';
+import { KubernetesClusterAdapter } from './kubernetes-cluster-adapter.js';
 
 export class KubernetesOperationsEngine {
   private adapter: KubernetesClusterAdapter;
