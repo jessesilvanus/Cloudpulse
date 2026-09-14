@@ -25,6 +25,39 @@ const ROUTE_TITLES: Record<string, string> = {
   '/infrastructure': 'Infrastructure & Cloud Topology',
   '/settings': 'Platform Settings & Simulation',
   '/system-status': 'System Internal Status',
+  '/decisions': 'Executive Decisions',
+  '/operations': 'Operations Control Plane',
+  '/aws-observability': 'AWS Observability & Metrics',
+  '/aws-topology': 'AWS Topology & Blast Radius',
+  '/aws-incidents': 'AWS Incident Root Cause Analysis',
+  '/aws-predictive': 'AWS Predictive Early Warnings',
+  '/aws-governance': 'AWS Governance & Compliance',
+  '/aws-drift': 'AWS Drift & Baseline Detection',
+  '/aws-remediation': 'AWS Remediation Orchestration',
+  '/aws-auto-healing': 'AWS Auto-Healing & Repair',
+  '/aws-simulator': 'AWS Policy Simulator',
+  '/aws-governance-intelligence': 'Governance Intelligence Center',
+  '/aws-governance-decisions': 'Governance Decision Engine',
+  '/aws-knowledge-graph': 'Governance Knowledge Graph',
+  '/investigate': 'Cloud Investigation',
+  '/aws-investigate': 'AWS Cloud Investigation',
+  '/cloud-overview': 'Multi-Cloud Overview',
+  '/kubernetes': 'Kubernetes Clusters',
+  '/accounts': 'AWS Accounts & Organizations',
+  '/finops': 'FinOps & Cloud Economics',
+  '/security': 'Security & Posture',
+  '/resilience': 'Resilience & DR Control',
+  '/sre': 'SRE & Reliability Control',
+  '/platform': 'Platform Health & Ops',
+  '/work': 'Work Items & Collaboration',
+  '/changes/calendar': 'Governed Changes & Freezes',
+  '/changes': 'Governed Changes & Freezes',
+  '/notifications': 'Notification Center',
+  '/settings/cloud-connections/aws': 'AWS Connection Setup',
+  '/settings/cloud-connections/azure': 'Azure Connection Setup',
+  '/settings/cloud-connections/gcp': 'GCP Connection Setup',
+  '/settings/cloud-connections/kubernetes': 'Kubernetes Connection Setup',
+  '/onboarding': 'Cloud Onboarding & Setup',
 };
 
 function getRouteTitle(pathname: string): string {
@@ -34,6 +67,9 @@ function getRouteTitle(pathname: string): string {
   if (pathname.startsWith('/alerts/')) return 'Alert Rule Inspector';
   if (pathname.startsWith('/incidents/')) return 'Incident Workspace';
   if (pathname.startsWith('/slos/')) return 'SLO Objective Detail';
+  if (pathname.startsWith('/kubernetes/clusters/')) return 'Kubernetes Cluster Detail';
+  if (pathname.startsWith('/situations/')) return 'Situation Detail';
+  if (pathname.startsWith('/settings/cloud-connections/')) return 'Cloud Connection Setup';
   return 'CloudPulse';
 }
 
@@ -49,7 +85,6 @@ export function TopBar({
   const title = getRouteTitle(pathname);
 
   const [utcTime, setUtcTime] = useState<string>('');
-  const [telemetryMode, setTelemetryMode] = useState<'live' | 'demo'>('live');
 
   useEffect(() => {
     const update = () => {
@@ -58,32 +93,8 @@ export function TopBar({
     };
     update();
     const interval = setInterval(update, 1000);
-
-    // Fetch active telemetry mode
-    fetch('http://localhost:3001/api/v1/telemetry/status')
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.data?.mode) setTelemetryMode(d.data.mode);
-      })
-      .catch(() => {});
-
     return () => clearInterval(interval);
   }, []);
-
-  const toggleMode = async () => {
-    const nextMode = telemetryMode === 'live' ? 'demo' : 'live';
-    try {
-      await fetch('http://localhost:3001/api/v1/telemetry/mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: nextMode }),
-      });
-      setTelemetryMode(nextMode);
-      if (onRefresh) onRefresh();
-    } catch {
-      // Ignore in dev
-    }
-  };
 
   return (
     <header
@@ -112,10 +123,8 @@ export function TopBar({
           </span>
         </div>
 
-        {/* Telemetry Mode Toggle Badge */}
-        <button
-          onClick={toggleMode}
-          title="Click to toggle between LIVE and DEMO telemetry mode"
+        {/* Live Indicator Badge */}
+        <span
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -125,10 +134,9 @@ export function TopBar({
             fontSize: '10px',
             fontWeight: 700,
             fontFamily: 'var(--font-mono)',
-            backgroundColor: telemetryMode === 'live' ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-card)',
-            color: telemetryMode === 'live' ? 'var(--status-healthy)' : 'var(--text-muted)',
-            border: `1px solid ${telemetryMode === 'live' ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-subtle)'}`,
-            cursor: 'pointer',
+            backgroundColor: 'rgba(16, 185, 129, 0.15)',
+            color: 'var(--status-healthy)',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
             textTransform: 'uppercase',
           }}
         >
@@ -137,11 +145,11 @@ export function TopBar({
               width: '6px',
               height: '6px',
               borderRadius: '50%',
-              backgroundColor: telemetryMode === 'live' ? 'var(--status-healthy)' : 'var(--text-muted)',
+              backgroundColor: 'var(--status-healthy)',
             }}
           />
-          {telemetryMode === 'live' ? 'LIVE LOCAL TELEMETRY' : 'DEMO TELEMETRY'}
-        </button>
+          LIVE
+        </span>
       </div>
 
       {/* Center: Command / Search Quick Bar */}

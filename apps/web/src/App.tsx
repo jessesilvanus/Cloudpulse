@@ -138,6 +138,18 @@ export function App() {
                   <Route path="/finops" element={<FinopsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/system-status" element={<SystemStatusPage />} />
+
+                  {/* Route Aliases for common alternative URLs */}
+                  <Route path="/command-center" element={<Navigate to="/overview" replace />} />
+                  <Route path="/global-command-center" element={<Navigate to="/overview" replace />} />
+                  <Route path="/work-items" element={<Navigate to="/work" replace />} />
+                  <Route path="/governed-changes" element={<Navigate to="/changes/calendar" replace />} />
+                  <Route path="/connect/aws" element={<Navigate to="/settings/cloud-connections/aws" replace />} />
+                  <Route path="/connect/azure" element={<Navigate to="/settings/cloud-connections/azure" replace />} />
+                  <Route path="/connect/gcp" element={<Navigate to="/settings/cloud-connections/gcp" replace />} />
+                  <Route path="/connect/kubernetes" element={<Navigate to="/settings/cloud-connections/kubernetes" replace />} />
+                  <Route path="/onboarding/cloud" element={<Navigate to="/onboarding" replace />} />
+
                   <Route path="*" element={<Navigate to="/overview" replace />} />
                 </Routes>
               </AppShell>

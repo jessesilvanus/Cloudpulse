@@ -72,11 +72,11 @@ export function ObservabilityHealthPage() {
             </span>
           </div>
           <div style={{ fontSize: '28px', fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: '6px', color: 'var(--status-healthy)' }}>
-            {summary?.overallHealthScore ?? 92}
+            {summary?.overallHealthScore ?? '--'}
             <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>/ 100</span>
           </div>
           <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Status: <strong>{summary?.status ?? 'HEALTHY'}</strong> (1 Degraded Component)
+            Status: <strong>{summary?.status ?? 'NOT_CONNECTED'}</strong>
           </div>
         </Card>
 
