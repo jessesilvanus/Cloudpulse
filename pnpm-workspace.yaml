@@ -4,5 +4,6 @@ packages:
   - 'services/*'
 
 allowBuilds:
+  bcrypt: set this to true or false
   esbuild: true
   protobufjs: true

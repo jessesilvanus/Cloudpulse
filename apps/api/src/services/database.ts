@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, QueryResultRow } from 'pg';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -14,7 +14,7 @@ export const db = connectionString
  * Helper to run a query with optional parameters.
  * Returns rows typed as generic `T`.
  */
-export async function query<T>(text: string, params?: any[]): Promise<T[]> {
+export async function query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<T[]> {
   if (!db) {
     throw new Error('Database not configured – cannot execute query.');
   }

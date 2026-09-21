@@ -12,7 +12,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 interface OAuthPendingState {
@@ -56,7 +56,6 @@ export class AuthIdentityEngine {
     return AuthIdentityEngine.instance;
   }
 
-<<<<<<< HEAD
   private getStoreFilePath(): string {
     const customDir = process.env['DATA_DIR'];
     if (customDir) {
@@ -818,7 +817,6 @@ private async verifyPassword(password: string, hash: string): Promise<boolean> {
       return { resetToken: '', message: genericMessage };
     }
 
-<<<<<<< HEAD
     const rawToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
     this.resetTokens.set(hashedToken, { email: emailKey, expiresAt: Date.now() + 3600000 });
@@ -872,35 +870,6 @@ private async verifyPassword(password: string, hash: string): Promise<boolean> {
     // Hash the incoming raw token to look up the stored hash
     const hashedToken = crypto.createHash('sha256').update(token.trim()).digest('hex');
     const entry = this.resetTokens.get(hashedToken);
-=======
-    // Generate cryptographically‑random token
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    // Store a hashed version for security (no plaintext token persisted)
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    this.resetTokens.set(tokenHash, { email: emailKey, expiresAt: Date.now() + 3600000 }); // 1 hour expiry
-
-    // Build reset URL using configured frontend URL
-    const frontendUrl = process.env['FRONTEND_URL'] || 'https://cloudpulse-web-w4ru-ten.vercel.app';
-    const resetUrl = `${frontendUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
-
-    // Send email via EmailService (provider configured via env vars)
-    try {
-      const EmailServiceClass = require('./email-service').EmailService;
-      const emailService = new EmailServiceClass();
-      emailService.sendPasswordReset(emailKey, resetUrl);
-    } catch (e) {
-      console.error('Password reset email delivery failed:', e);
-    }
-
-    // Return generic success message; do not expose token to client
-    return { resetToken: rawToken, message: 'If an account exists for that email address, a password reset link has been sent.' };
-  }
-
-  public resetPassword(token: string, newPassword: string): boolean {
-    // Hash the received raw token to match stored hash
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const entry = this.resetTokens.get(tokenHash);
->>>>>>> ab5df98 (Fix duplicate dependencies and clean package.json)
     if (!entry || entry.expiresAt < Date.now()) {
       // Clean up expired token if present
       if (entry) this.resetTokens.delete(hashedToken);
@@ -908,7 +877,6 @@ private async verifyPassword(password: string, hash: string): Promise<boolean> {
       throw new Error('Invalid or expired password reset token.');
     }
 
-<<<<<<< HEAD
     const cleanEmail = entry.email.trim().toLowerCase();
     this.userPasswords.set(cleanEmail, this.hashPassword(newPassword));
     // Invalidate token — single-use
@@ -923,11 +891,6 @@ private async verifyPassword(password: string, hash: string): Promise<boolean> {
       }
     }
     this.persistStore();
-=======
-    // Update password and invalidate token (single‑use)
-    this.userPasswords.set(entry.email, this.hashPassword(newPassword));
-    this.resetTokens.delete(tokenHash);
->>>>>>> ab5df98 (Fix duplicate dependencies and clean package.json)
     return true;
   }
 
