@@ -4,6 +4,17 @@ packages:
   - 'services/*'
 
 allowBuilds:
-  bcrypt: set this to true or false
   esbuild: true
   protobufjs: true
+
+onlyBuiltDependencies:
+  - esbuild
+  - protobufjs
+
+overrides:
+  qs: '>=6.16.0'
+  morgan: '>=1.12.0'
+  js-yaml: '>=4.3.2'
+  esbuild: '>=0.25.0'
+  vite: '>=6.4.3'
+  react-router: '>=7.18.0'
